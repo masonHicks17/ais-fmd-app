@@ -16,6 +16,9 @@
     "  verified  : true  = treasury has confirmed this in writing. Decides the row.",
     "              false = inferred or assumed. A weak hint only, labelled",
     "                      'unconfirmed' wherever it is used.",
+    "  socials_to: optional. A committee ID for socials (bars, liquor stores)",
+    "              bought on this card, when they belong somewhere other than",
+    "              the card's committee.",
     "  era       : the officer cohort this was confirmed under -- a name from",
     "              _eras below. The card only applies to transactions dated",
     "              inside that cohort's start/end, so a new cohort's cards replace",
@@ -47,7 +50,11 @@
     "now and then something for her own committee (a rewards dinner at Chili's).",
     "The card defaults to Operations (6, formerly Corporate Relations); meeting",
     "food on it is caught by the meeting-food evidence -- see",
-    "scoring.REVIEW_MEETING_DAY_FOOD_ON."
+    "scoring.REVIEW_MEETING_DAY_FOOD_ON.",
+    "CHANGED 2026-11-03 (treasury): 9570 defaults to Meeting Food (8). 'Moe's is",
+    "absolutely meeting food and that card should default to meeting food with",
+    "sole exceptions of socials we give them.' A social on it -- read from the",
+    "bank line as a bar or liquor store -- goes to Operations (socials_to)."
   ],
 
   "_UNDOCUMENTED": [
@@ -63,7 +70,7 @@
   "7101": {"committee": 5, "holder": "Membership VP", "verified": true, "era": "2026-2027"},
   "3526": {"committee": 4, "holder": "President", "verified": true, "era": "2026-2027"},
   "3466": {"committee": 2, "holder": "Treasurer", "verified": true, "era": "2026-2027"},
-  "9570": {"committee": 6, "holder": "VP Operations", "verified": true, "era": "2026-2027"},
+  "9570": {"committee": 8, "socials_to": 6, "holder": "VP Operations", "verified": true, "era": "2026-2027"},
 
   "8313": {"committee": 5, "holder": "Membership VP", "verified": true, "era": "2024-2026"},
   "5718": {"committee": 5, "holder": "Membership VP", "verified": true, "era": "2024-2026"},

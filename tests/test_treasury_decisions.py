@@ -623,7 +623,7 @@ FALL_2026_CARDS = {
     "7101": 5,  # Membership
     "3526": 4,  # President
     "3466": 2,  # Treasury -- the treasurer's own card (US Mobile), 2026-09-23
-    "9570": 6,  # Operations (formerly Corporate Relations) -- VP Operations, 2026-10-01
+    "9570": 8,  # VP Operations' card: Meeting Food by default, 2026-11-03
 }
 
 
@@ -694,11 +694,10 @@ def _ops(merchant: str, purchase: str, amount: float, when: str) -> dict:
     return record
 
 
-def test_the_operations_card_defaults_to_operations():
-    """The $66.67 Chili's was a rewards dinner for her committee, not meeting food."""
-    record = _ops("CHILI'S GAINESVILL", "09/16", -66.67, "2026-09-17")
-    result = categorize_records([record]).classifications[0]
-    assert result.committee_id == 6
+def test_the_operations_card_defaults_to_meeting_food():
+    """Treasury, 2026-11-03: the real $443.68 Moe's order, bought on a Monday."""
+    record = _ops("MOE'S 167", "10/26", -443.68, "2026-10-30")
+    assert categorize_records([record]).classifications[0].committee_id == 8
 
 
 def test_a_meeting_sized_order_on_the_operations_card_is_meeting_food():
@@ -707,12 +706,34 @@ def test_a_meeting_sized_order_on_the_operations_card_is_meeting_food():
     assert categorize_records([record]).classifications[0].committee_id == 8
 
 
-def test_small_meeting_day_food_on_the_operations_card_goes_to_review():
-    """She mostly buys meeting food, so a $40 Tuesday grocery run is not defaulted to Operations."""
-    record = _ops("PUBLIX SUPER MAR", "09/15", -40.00, "2026-09-16")
-    run = categorize_records([record])
-    assert not run.classifications[0].is_assigned
-    assert run.held_for_review[0].winner == 8
+def test_small_food_on_the_operations_card_is_meeting_food():
+    """A $40 grocery run on any day is booked, not held for review."""
+    record = _ops("PUBLIX SUPER MAR", "09/18", -40.00, "2026-09-19")
+    assert categorize_records([record]).classifications[0].committee_id == 8
+
+
+def test_a_social_on_the_operations_card_is_operations():
+    """'with sole exceptions of socials we give them' -- a bar is a social."""
+    record = _ops("SALTY DOG SALOON 352-3756969 FL", "10/09", -84.00, "2026-10-12")
+    result = categorize_records([record]).classifications[0]
+    assert result.committee_id == 6
+    assert "a social" in result.rule
+
+
+def test_monday_is_a_meeting_food_day():
+    """Treasury, 2026-11-03: 'meeting food days should include monday'."""
+    record = row("PURCHASE AUTHORIZED ON 10/26 PIESANOS 3 GAINESVILLE FL", -300.00)
+    record["transaction_date"] = "2026-10-27"
+    assert categorize_records([record]).classifications[0].committee_id == 8
+
+
+@pytest.mark.parametrize("memo, amount", [
+    ("AIS XL CREW NECK", 30.00),
+    ("AIS FOREVER SWEATERS", 60.00),
+    ("AIS SHIRT", 15.00),
+])
+def test_merch_memos_from_the_fall_2026_statement(memo, amount):
+    assert classify_exact(row(f"{zelle_from()} {memo}", amount)).committee_id == 13
 
 
 def test_other_cards_keep_their_default_on_small_meeting_day_food():

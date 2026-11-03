@@ -218,10 +218,15 @@ it to Membership."
 
 ## Output
 
-JSON only: {"results": [{"index": <int>, "verdict": "fits" | "question" |
-"other_committee", "suggested_committee_id": <int or null>, "confidence":
-<0.0-1.0>, "reason": "<one short sentence>", "message_to_vp": "<only when not
-fits, else empty>"}]}
+JSON only: {"results": [{"index": <int>, "amount": <the row's Amount, copied
+exactly>, "verdict": "fits" | "question" | "other_committee",
+"suggested_committee_id": <int or null>, "confidence": <0.0-1.0>, "reason":
+"<one short sentence>", "message_to_vp": "<only when not fits, else empty>"}]}
+
+One result for every transaction, in any order. `amount` is how the app checks
+each answer is attached to the right row. `suggested_committee_id` is null
+unless the verdict is `other_committee`. Every `question` and `other_committee`
+needs a `message_to_vp`.
 
 Report confidence honestly. When you cannot tell what a merchant is, say so in
 the reason and choose `question` rather than guessing.
@@ -327,11 +332,13 @@ The VP of Operations' committee (formerly Corporate Relations, renamed
   branded giveaways (4imprint ~$217, National Pen ~$118, LogoKick ~$93), small
   Amazon orders ($13-$29), reimbursements $50-$150. Card purchases $6-$220,
   median $46.
-- From Fall 2026 the VP of Operations' card (9570) also buys the general-
-  meeting food; that food belongs on Meeting Food, so a meeting-sized food
-  order on Monday-Wednesday booked here is `other_committee` -> Meeting Food.
-- A small sit-down restaurant bill for a few people (a rewards or appreciation
-  dinner, ~$67 at Chili's) is fine here.
+- From Fall 2026 the VP of Operations' card (9570) buys the general-meeting
+  food, and it books to Meeting Food by default (treasury, 2026-11-03). The only
+  spending on it that belongs here is the socials treasury gives Operations: a
+  bar or liquor store books here automatically, and a sit-down dinner for a
+  few people (a rewards or appreciation dinner, ~$67 at Chili's) belongs here
+  too. Food on that card booked here is `other_committee` -> Meeting Food
+  unless it reads as one of those socials.
 
 ## 7 Consulting
 Consulting projects and the committee's own events. 243 payments out, $26,600
@@ -353,8 +360,8 @@ over four years: the second-largest spender.
 - Weekdays: Tue 34%, Mon 25%, Fri 21%; rarely Wed-Thu or weekends.
 - Months: February-March (41%) and September-November (38%); nothing
   June-August.
-- Meeting-sized food on a Consulting card is Consulting's own catering unless
-  the treasurer says otherwise.
+- Meeting-sized food on a Consulting card is Consulting's own catering, on any
+  day of the week (treasury, 2026-11-03: "they also cater"). It `fits`.
 - Unusual: liquor-store purchases (once, $279 -- ask), merch, hardware.
 
 ## 8 Meeting Food
@@ -370,6 +377,11 @@ order per meeting week, 7-14 per term.
   a whole meeting's food is normal here: ask for a receipt only above ~$800.
 - Weekdays: Wed 41%, Tue 28%, Mon 18% -- 87% Monday-Wednesday. A purchase
   Thursday-Sunday is unusual for this committee.
+- The VP of Operations' card (9570) defaults here: everything on it except
+  socials. A small sit-down dinner on it (a rewards dinner, ~$67 at Chili's) is
+  an Operations social: `other_committee` -> Operations (6).
+- Food on a Consulting card is never Meeting Food, however much it looks like
+  a GBM order: Consulting caters its own events from the same restaurants.
 - Unusual: bars, liquor stores (a bar or liquor store is Membership, never
   Meeting Food), anything that is not food.
 

@@ -32,6 +32,7 @@ from ais_fmd.domain.categorize.pipeline import categorize_records
 from ais_fmd.domain.categorize.scoring import CardRegistry, current_era
 from ais_fmd.ui import charts, shell
 from ais_fmd.ui import flags as flag_ui
+from ais_fmd.ui import spend_review as spend_review_ui
 
 identity = auth.require(auth.Role.TREASURER)
 
@@ -53,6 +54,9 @@ if transactions.empty:
 # Charges a VP has disputed ("This isn't ours"). One call; the panel lives in
 # ui/flags.py so this shared page stays untouched otherwise.
 flag_ui.treasurer_panel(transactions, identity.email)
+
+# The Haiku spend review: a metered run the treasurer starts, and its flags.
+spend_review_ui.treasurer_panel(transactions, identity)
 
 # Stored categorizations are the record (treasury, 2026-10-02, restated
 # 2026-10-16). Much of the history carried over from the original app has a
@@ -163,7 +167,8 @@ st.markdown('<hr class="ais-rule" />', unsafe_allow_html=True)
 # --- Suggestions -------------------------------------------------------------
 # Re-run the pipeline over the pending rows so the queue shows what the current
 # card roster and rules would do now, which may differ from when they were
-# first imported.
+# first imported. Rules only: there is no gate here, so this page -- which
+# reruns on every click -- never calls the model.
 
 records = pending.to_dict("records")
 run = categorize_records(records, dues=dues.schedule_from_terms(repo.load_terms()))
@@ -223,19 +228,6 @@ if proposed:
         f"**{proposed}** were scored but held back as too uncertain to book "
         f"automatically. Each shows the committee the evidence favoured, its "
         f"confidence, and what contested it — confirm or correct below."
-    )
-
-if run.llm.skipped_reason:
-    st.caption(f"Model pass: {run.llm.skipped_reason}")
-elif run.llm.fully_failed:
-    shell.error_state(
-        "Every model batch failed",
-        "\n".join(run.llm.errors[:3]) or "No detail returned.",
-    )
-elif run.llm.partially_failed:
-    st.warning(
-        f"{run.llm.batches_failed} of {run.llm.batches_attempted} model batches failed. "
-        f"Partial results are shown."
     )
 
 # --- Queue -------------------------------------------------------------------

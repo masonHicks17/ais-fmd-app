@@ -42,12 +42,11 @@ from ..money import parse_amount
 from .merchants import merchant_key
 from .predicates import (
     COMMITTEE_PURPOSE,
+    MEETING_WEEKDAYS,
     looks_like_bar,
     looks_like_food_merchant,
     weekday_from_details,
 )
-
-MEETING_WEEKDAYS = frozenset({"Tuesday", "Wednesday"})
 
 KIND_MERCHANT = "merchant"
 KIND_MEMO = "transfer-memo"

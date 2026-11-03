@@ -189,6 +189,7 @@ FOOD_MERCHANT_KEYWORDS: tuple[str, ...] = (
     "pizza", "grill", "kitchen", "deli", "cafe", "restaurant", "food", "sushi",
     "asian", "mexic", "menchies", "mr and mrs crab", "hana sushi", "las carretas",
     "escapology", "bagel", "bakery", "taco", "wings", "subway", "jimmy john",
+    "moe's",
     "panera", "sam's club", "walmart", "wm supercenter", "costco", "target",
     # Toast, the restaurant point-of-sale: its charges read "TST*<restaurant>",
     # and the restaurant name is often cut off ("TST*MI APA LATIN C" on a $641
@@ -210,7 +211,11 @@ NEVER_BAR_KEYWORDS: tuple[str, ...] = (
     "wm supercenter", "target", "costco", "sam's club",
 )
 
-MEETING_WEEKDAYS = frozenset({"Tuesday", "Wednesday"})
+# Monday added 2026-11-03 (treasury: "meeting food days should include
+# monday"). Food for a Tuesday GBM is often bought the day before -- the $443.68
+# Moe's order on Monday 10/26 -- and 18% of Meeting Food's history is Mondays.
+# The one list: scoring and bulk import it from here.
+MEETING_WEEKDAYS = frozenset({"Monday", "Tuesday", "Wednesday"})
 
 COMMITTEE_PURPOSE: dict[int, str] = {
     1: "Dues",
@@ -255,7 +260,10 @@ COMMITTEE_PURPOSE: dict[int, str] = {
 MEMO_COMMITTEE_KEYWORDS: tuple[tuple[tuple[str, ...], int, str], ...] = (
     (("semi-formal", "semi formal", "semiformal", "formal"), 18, "formal"),
     (
-        ("crewneck", "sweatshirt", "t-shirt", "tshirt", "t shirt", "hoodie", "merch"),
+        (
+            "crewneck", "crew neck", "sweatshirt", "sweater", "t-shirt", "tshirt",
+            "t shirt", "shirt", "hoodie", "merch",
+        ),
         13,
         "merch",
     ),

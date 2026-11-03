@@ -57,14 +57,13 @@ from ...config.categories import COMMITTEE_BY_ID, committee_name
 from ..money import parse_amount
 from .predicates import (
     COMMITTEE_PURPOSE,
+    MEETING_WEEKDAYS,
     Classification,
     looks_like_bar,
     looks_like_food_merchant,
     record_date,
     weekday_from_details,
 )
-
-MEETING_WEEKDAYS = frozenset({"Tuesday", "Wednesday"})
 
 # Labels are tagged with the officer cohort they were decided under, because
 # card assignments do not survive a handover. The cohort is no longer a
@@ -138,25 +137,20 @@ W_CARD_VERIFIED = 2 * MAX_NON_CARD_EVIDENCE + 1.0
 # Tuesday snack run keeps its card, a $150 one is Meeting Food.
 CARD_OVERRULE_EVIDENCE = MAX_NON_CARD_EVIDENCE
 
-# Committees whose cards are never overruled automatically. When every other
-# signal disagrees with one of these cards, the row goes to the model and then
-# a human instead. Consulting caters its own events from the same restaurants
-# Meeting Food uses, often on meeting days -- treasury, 2026-10-01: that "is
-# absolutely going to happen multiple times" and must not land in Meeting Food.
-# Keyed on the committee, not a card number, so it survives the next handover.
-REVIEW_ON_CARD_CONFLICT = frozenset({7})
+# Committees whose cards are never overruled. Consulting caters its own events
+# from the same restaurants Meeting Food uses, on the same days, so a full
+# meeting-food reading on its card is still Consulting's: "Consulting card
+# purchases that are similar to meeting food go to consulting, they also cater"
+# (treasury, 2026-11-03). This replaces the 2026-10-01 middle ground, which sent
+# those rows to the model and a human. Keyed on the committee, not a card
+# number, so it survives the next handover.
+#
+# REMOVED 2026-11-03: REVIEW_MEETING_DAY_FOOD_ON ({6}). It held small
+# meeting-day food on the VP of Operations' card for review because the card
+# defaulted to Operations. The card now defaults to Meeting Food itself (see
+# config/card_roster.json), so there is nothing left to contest.
+CARD_NEVER_OVERRULED = frozenset({7})
 
-# Committees whose cardholder mostly buys meeting food. On these cards even a
-# *partial* meeting-food reading -- food on a meeting day, but not
-# catering-sized -- is not left on the card's default; it goes to the model and
-# then a human. Operations: the VP buys the meeting food and "absolutely
-# nothing" else except the odd thing for her own committee, such as a $66
-# rewards dinner (treasury, 2026-10-01). A full reading still overrules the card
-# outright, as on any other card.
-REVIEW_MEETING_DAY_FOOD_ON = frozenset({6})
-
-# Food bought on a meeting day: the meeting-food reading without the size signal.
-MEETING_DAY_FOOD_EVIDENCE = W_FOOD_MERCHANT + W_MEETING_WEEKDAY + W_MEETING_CONJUNCTION
 W_CARD_UNVERIFIED = 0.6   # inferred only, must never beat a verified signal
 
 # A food purchase at or above this reads as catering for a meeting rather than
@@ -192,6 +186,11 @@ class CardAssignment:
     era: str = ""
     starts: date | None = None
     ends: date | None = None
+    # Where a social (a bar or liquor store) bought on this card goes, when that
+    # is not the card's own committee. The VP of Operations' card defaults to
+    # Meeting Food, but the socials treasury gives Operations are hers
+    # (treasury, 2026-11-03).
+    socials_to: int | None = None
 
     @property
     def weight(self) -> float:
@@ -320,6 +319,10 @@ def load_card_roster(path: Path | None = None) -> dict[str, CardAssignment]:
             continue
         era = str(entry.get("era") or "")
         starts, ends = windows.get(era, (None, None))
+        try:
+            socials_to = int(entry["socials_to"]) if "socials_to" in entry else None
+        except (TypeError, ValueError):
+            socials_to = None
         roster[str(card)] = CardAssignment(
             committee_id=committee,
             holder=str(entry.get("holder") or ""),
@@ -327,6 +330,7 @@ def load_card_roster(path: Path | None = None) -> dict[str, CardAssignment]:
             era=era,
             starts=starts,
             ends=ends,
+            socials_to=socials_to if socials_to in COMMITTEE_BY_ID else None,
         )
     return roster
 
@@ -374,9 +378,13 @@ class CardRegistry:
             return None
         holder = f" ({assignment.holder})" if assignment.holder else ""
         era = f" {assignment.era}" if assignment.era else ""
+        committee = assignment.committee_id
+        if assignment.socials_to is not None and looks_like_bar(record.get("details")):
+            committee = assignment.socials_to
+            note = f"; a social, so {committee_name(committee)}{note}"
         return Classification(
-            committee_id=assignment.committee_id,
-            purpose=COMMITTEE_PURPOSE.get(assignment.committee_id, "Misc."),
+            committee_id=committee,
+            purpose=COMMITTEE_PURPOSE.get(committee, "Misc."),
             rule=f"Card {card}{holder} — on the{era} card roster{note}",
             confidence=CARD_DEFAULT_CONFIDENCE,
             source="rule",

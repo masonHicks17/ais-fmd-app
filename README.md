@@ -13,12 +13,12 @@ single mistake is enough to reach anything real.
 
 **1. It cannot reach your database or an LLM API — the libraries are not installed.**
 
-The sandbox virtualenv deliberately omits `supabase` and `openai`. There is no
-code path that can contact Supabase or OpenAI because the clients do not exist
-on disk. Verify it yourself:
+The sandbox virtualenv deliberately omits `supabase` and `anthropic`. There is
+no code path that can contact Supabase or the Claude API because the clients do
+not exist on disk. Verify it yourself:
 
 ```bash
-.venv/Scripts/python -c "import importlib.util as u; print('openai:', u.find_spec('openai')); print('supabase:', u.find_spec('supabase'))"
+.venv/Scripts/python -c "import importlib.util as u; print('anthropic:', u.find_spec('anthropic')); print('supabase:', u.find_spec('supabase'))"
 ```
 
 Both print `None`.
@@ -36,7 +36,7 @@ Nothing here shares a `.git` directory with `ais-fmd-app`. `git remote -v` is
 empty, so `git push` has nowhere to push. Your GitHub repository cannot be
 affected by anything in this folder.
 
-Additionally: even a stray `OPENAI_API_KEY` in your environment will not cause
+Additionally: even a stray `ANTHROPIC_API_KEY` in your environment will not cause
 spending. `settings.llm_enabled()` returns `False` in sandbox mode regardless of
 what keys are present. There is a test asserting exactly that.
 

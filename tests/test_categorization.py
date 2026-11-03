@@ -197,20 +197,19 @@ def test_consulting_lunch_on_a_meeting_day_stays_consulting():
     assert result.committee_id == 7
 
 
-def test_consulting_catering_on_a_meeting_day_goes_to_review():
+def test_consulting_catering_on_a_meeting_day_stays_consulting():
     """
     Consulting caters its own events from the same restaurants, on meeting
-    days, "multiple times" a semester (treasury, 2026-10-01). A full
-    meeting-food reading on a Consulting card is neither booked to Meeting Food
-    nor waved through as Consulting: it goes to the model, then a human.
+    days (treasury, 2026-11-03: "they also cater"). A full meeting-food reading
+    on a Consulting card leaves the card standing, with the dissent noted.
     """
     run = categorize_records(
         [carded("4831", "2026-09-16", "CHIPOTLE 1462", "09/15", -210.00)], cards=ROSTER
     )
     result = run.classifications[0]
-    assert not result.is_assigned
-    assert "Consulting" in result.rule and "Meeting Food" in result.rule
-    assert run.held_for_review[0].winner == 7, "the queue suggests the card's committee first"
+    assert result.committee_id == 7
+    assert "lean Meeting Food" in result.rule and "never overruled" in result.rule
+    assert not run.residual, "nothing goes to the model"
 
 
 def test_the_consulting_exception_follows_the_committee_not_the_card():
@@ -219,7 +218,7 @@ def test_the_consulting_exception_follows_the_committee_not_the_card():
     run = categorize_records(
         [carded("1111", "2026-09-16", "CHIPOTLE 1462", "09/15", -210.00)], cards=roster
     )
-    assert not run.classifications[0].is_assigned
+    assert run.classifications[0].committee_id == 7
 
 
 def test_the_model_only_books_what_it_is_sure_of(monkeypatch):
@@ -238,14 +237,15 @@ def test_the_model_only_books_what_it_is_sure_of(monkeypatch):
 
     monkeypatch.setattr(pipeline, "classify_residual", fake)
     rows = [
-        carded("4831", "2026-09-16", "CHIPOTLE 1462", "09/15", -210.00),
+        {"amount": -60.00, "details": "ZELLE TO PAT LANE ON 09/16 REF # WFCT22NB0000",
+         "account": "Wells Fargo", "transaction_date": "2026-09-16"},
         carded("9999", "2026-09-17", "SOMEWHERE ODD", "09/17", -30.00),
     ]
     run = categorize_records(rows, cards=ROSTER)
     assert run.classifications[0].committee_id == 7
     assert not run.classifications[1].is_assigned
     assert "Model suggests Meeting Food (55%)" in run.classifications[1].rule
-    assert "Consulting" in seen[0][1]["upstream_note"], "the model is told what the conflict is"
+    assert "Outgoing transfer" in seen[0][1]["upstream_note"], "the model is told what was recognised"
 
 
 def test_an_old_cohorts_card_does_not_book_new_spending():

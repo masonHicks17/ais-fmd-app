@@ -192,7 +192,12 @@ For production, set as environment variables (never commit them):
 
 - `AIS_FMD_ENV=production` — the *only* value that leaves sandbox mode
 - `SUPABASE_URL`, `SUPABASE_SERVICE_KEY` (the secret key; the publishable key is not used)
-- `OPENAI_API_KEY` — optional; only used for transactions no rule can resolve
+- `ANTHROPIC_API_KEY` — optional; the Claude key behind the spend review and the
+  categorizer's model pass. Put it in its own Anthropic workspace with a spend
+  limit and prepaid credit (no auto-reload). Absent = both passes stay off.
+- `AIS_FMD_LLM_ENABLED=0` — the off switch for every model call, key or not
+- `AIS_FMD_LLM_MONTHLY_CAP_USD` — the app's own monthly cap (default `2.00`),
+  counted from the `llm_runs` ledger (migration 013)
 
 If a key is ever exposed, rotate it in the Supabase dashboard first and update
 the environment second.

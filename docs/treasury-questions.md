@@ -327,3 +327,17 @@ A known consequence, pinned in `test_consulting_catering_on_a_meeting_day_reads_
 | 17 | **Card 9570 is the VP of Operations.** She buys the meeting food, plus the occasional thing for her own committee (the $66.67 Chili's was a rewards dinner). Committee 6, formerly Corporate Relations and now defunct, is renamed **Operations**. Her card defaults to Operations. A catering-sized meeting-day food order on it goes to Meeting Food, and smaller meeting-day food goes to the model and then review. | `config/card_roster.json`, `categories.py`, migration 006, `scoring.REVIEW_MEETING_DAY_FOOD_ON` |
 | 18 | **Outgoing reimbursement memos that name their committee are booked.** "MEMBERSHIP REIMBURSEMENT" → Membership and "MEETING FOOD REIMBURSEMENT" → Meeting Food. This only applies to outgoing transfers, because on incoming payments "membership" means dues. | `OUTGOING_MEMO_COMMITTEE_KEYWORDS` |
 | 19 | **An outgoing memo that says "consulting" is Consulting**, whatever else it says ("CONSULTING MEETING FOOD REIMBURSEMENT" included). It's checked before every other memo keyword. Outgoing only, because the one incoming example is a hoodie payment. This moved $911 of Spring 2026 "Consulting food" reimbursements out of Meeting Food, and resolved 7 more Consulting reimbursements that were in review. | `predicates.OUTGOING_FIRST_MEMO_KEYWORDS` |
+
+---
+
+# Round 5 — rulings, 2026-11-03
+
+From the review of `Checking (2).csv` (08/10 to 11/02/2026).
+
+| # | Ruling | Where it landed |
+| --- | --- | --- |
+| 17 (revised) | **Card 9570 defaults to Meeting Food.** "Moe's is absolutely meeting food and that card should default to meeting food with sole exceptions of socials we give them." The only socials a bank line can show are bars and liquor stores, so those book to Operations automatically. Any other Operations social, like the $66.67 Chili's rewards dinner, is left for the spend review and the treasurer to move. This replaces Round 4 #17. | `config/card_roster.json` (`committee: 8`, `socials_to: 6`), `CardRegistry.default_for`; `REVIEW_MEETING_DAY_FOOD_ON` removed |
+| 20 | **Monday is a meeting-food day**, alongside Tuesday and Wednesday. | `predicates.MEETING_WEEKDAYS` (scoring and bulk import it) |
+| 15 (revised) | **Food on a Consulting card goes to Consulting.** "Consulting card purchases that are similar to meeting food go to consulting, they also cater." Even a full meeting-food reading leaves the card standing, instead of going to the model and review. This replaces Round 4 #15. | `scoring.CARD_NEVER_OVERRULED` |
+| 21 | **Start-of-term President charges were Membership.** In Fall 2026, MacDinton's ($298.96, 08/15) and The Swamp ($307.75, 08/21) were Membership socials paid on the President's card. The $21.00 Salty Dog charge (09/23) is the President's own discretionary spending. | A booking change in the app. The spend review's "Start-of-term cover" section already describes this |
+| 22 | **Merch memo words:** "crew neck", "sweater" and "shirt" are added. "Moe's" is added to the food merchants. | `MEMO_COMMITTEE_KEYWORDS`, `FOOD_MERCHANT_KEYWORDS` |

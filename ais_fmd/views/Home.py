@@ -199,7 +199,7 @@ with side:
             elif "reconcil" in code:
                 target = ("ais_fmd/views/Reconciliation.py", None)
             elif "stale" in code:
-                target = ("ais_fmd/views/Treasury.py", None)
+                target = ("ais_fmd/views/TransactionsHub.py", "Import")
             else:
                 target = ("ais_fmd/views/AlertsHub.py", "Alerts & Reports")
             icon = {"critical": ":material/error:", "warning": ":material/warning:"}.get(

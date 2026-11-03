@@ -167,6 +167,59 @@ CREATE INDEX IF NOT EXISTS ix_flags_status ON transaction_flags (status);
 CREATE UNIQUE INDEX IF NOT EXISTS ux_flags_one_open
     ON transaction_flags (transaction_id) WHERE status = 'open';
 
+-- The model spending ledger (migrations/013_model_runs.sql). Every model call
+-- belongs to a run, and a run is recorded before its first call.
+CREATE TABLE IF NOT EXISTS llm_runs (
+    run_id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    purpose            TEXT NOT NULL,
+    model              TEXT NOT NULL,
+    status             TEXT NOT NULL DEFAULT 'running',
+    started_by         TEXT NOT NULL,
+    started_at         TEXT NOT NULL,
+    finished_at        TEXT,
+    rows_planned       INTEGER NOT NULL DEFAULT 0,
+    calls_planned      INTEGER NOT NULL DEFAULT 0,
+    calls_made         INTEGER NOT NULL DEFAULT 0,
+    input_tokens       INTEGER NOT NULL DEFAULT 0,
+    output_tokens      INTEGER NOT NULL DEFAULT 0,
+    cache_read_tokens  INTEGER NOT NULL DEFAULT 0,
+    cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+    reserved_usd       REAL NOT NULL,
+    cost_usd           REAL NOT NULL DEFAULT 0,
+    error              TEXT
+);
+
+-- One run at a time: a second "running" row cannot exist, so a double-click
+-- or two treasurers at once get a refusal, not two runs.
+CREATE UNIQUE INDEX IF NOT EXISTS ux_llm_runs_one_running
+    ON llm_runs (status) WHERE status = 'running';
+
+-- One verdict per charge per committee it was booked to. Re-booking a charge
+-- makes it eligible once more; nothing else does.
+CREATE TABLE IF NOT EXISTS spend_reviews (
+    review_id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    transaction_id         INTEGER NOT NULL,
+    booked_committee_id    INTEGER NOT NULL,
+    verdict                TEXT NOT NULL,
+    suggested_committee_id INTEGER,
+    confidence             REAL,
+    reason                 TEXT,
+    message_to_vp          TEXT,
+    status                 TEXT NOT NULL,
+    run_id                 INTEGER,
+    model                  TEXT,
+    prompt_version         TEXT,
+    reviewed_at            TEXT DEFAULT CURRENT_TIMESTAMP,
+    resolved_at            TEXT,
+    resolved_by            TEXT,
+    resolution_note        TEXT,
+    UNIQUE (transaction_id, booked_committee_id),
+    FOREIGN KEY (transaction_id) REFERENCES transactions (transactionid),
+    FOREIGN KEY (run_id) REFERENCES llm_runs (run_id)
+);
+
+CREATE INDEX IF NOT EXISTS ix_spend_reviews_status ON spend_reviews (status);
+
 -- Module M9: receipt capture.
 CREATE TABLE IF NOT EXISTS receipts (
     receipt_id     INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -718,6 +771,143 @@ class SqliteBackend(Backend):
                 )
                 connection.commit()
                 result.updated = 1
+        except sqlite3.Error as exc:
+            result.error = f"{type(exc).__name__}: {exc}"
+        return result
+
+    # --- Model runs and spend reviews -----------------------------------------
+
+    def fetch_llm_runs(self) -> pd.DataFrame:
+        return self._read("SELECT * FROM llm_runs ORDER BY run_id DESC")
+
+    def start_llm_run(
+        self,
+        *,
+        purpose: str,
+        model: str,
+        actor: str,
+        rows_planned: int,
+        calls_planned: int,
+        reserved_usd: float,
+        stale_before: str,
+        started_at: str,
+    ) -> tuple[int | None, UpdateResult]:
+
+        result = UpdateResult()
+        try:
+            with self._connect() as connection:
+                # A run still "running" from before `stale_before` crashed.
+                connection.execute(
+                    "UPDATE llm_runs SET status = 'abandoned', "
+                    "error = COALESCE(error, 'never finished; its reservation still counts') "
+                    "WHERE status = 'running' AND started_at < ?",
+                    (stale_before,),
+                )
+                try:
+                    cursor = connection.execute(
+                        "INSERT INTO llm_runs (purpose, model, status, started_by, started_at, "
+                        "rows_planned, calls_planned, reserved_usd) "
+                        "VALUES (?, ?, 'running', ?, ?, ?, ?, ?)",
+                        (
+                            purpose, model, actor,
+                            started_at,
+                            int(rows_planned), int(calls_planned), float(reserved_usd),
+                        ),
+                    )
+                except sqlite3.IntegrityError:
+                    connection.commit()  # keep the stale-run cleanup
+                    result.error = "Another model run is in progress. Try again in a few minutes."
+                    return None, result
+                connection.commit()
+                result.updated = 1
+                return int(cursor.lastrowid), result
+        except sqlite3.Error as exc:
+            result.error = f"{type(exc).__name__}: {exc}"
+            return None, result
+
+    def finish_llm_run(
+        self,
+        *,
+        run_id: int,
+        status: str,
+        calls_made: int,
+        input_tokens: int,
+        output_tokens: int,
+        cache_read_tokens: int,
+        cache_write_tokens: int,
+        cost_usd: float,
+        error: str | None,
+    ) -> UpdateResult:
+        from datetime import datetime, timezone
+
+        result = UpdateResult()
+        try:
+            with self._connect() as connection:
+                connection.execute(
+                    "UPDATE llm_runs SET status = ?, finished_at = ?, calls_made = ?, "
+                    "input_tokens = ?, output_tokens = ?, cache_read_tokens = ?, "
+                    "cache_write_tokens = ?, cost_usd = ?, error = ? WHERE run_id = ?",
+                    (
+                        status, datetime.now(timezone.utc).isoformat(), int(calls_made),
+                        int(input_tokens), int(output_tokens), int(cache_read_tokens),
+                        int(cache_write_tokens), float(cost_usd), error, int(run_id),
+                    ),
+                )
+                connection.commit()
+                result.updated = 1
+        except sqlite3.Error as exc:
+            result.error = f"{type(exc).__name__}: {exc}"
+        return result
+
+    def fetch_spend_reviews(self) -> pd.DataFrame:
+        return self._read(
+            "SELECT * FROM spend_reviews "
+            "ORDER BY CASE status WHEN 'open' THEN 0 ELSE 1 END, review_id DESC"
+        )
+
+    def insert_spend_reviews(self, reviews: list[dict], actor: str) -> UpdateResult:
+        result = UpdateResult()
+        columns = (
+            "transaction_id", "booked_committee_id", "verdict", "suggested_committee_id",
+            "confidence", "reason", "message_to_vp", "status", "run_id", "model",
+            "prompt_version",
+        )
+        try:
+            with self._connect() as connection:
+                for review in reviews:
+                    cursor = connection.execute(
+                        f"INSERT OR IGNORE INTO spend_reviews ({', '.join(columns)}) "
+                        f"VALUES ({', '.join('?' for _ in columns)})",
+                        tuple(review.get(column) for column in columns),
+                    )
+                    if cursor.rowcount:
+                        result.updated += 1
+                    else:
+                        result.unchanged += 1
+                connection.commit()
+        except sqlite3.Error as exc:
+            result.error = f"{type(exc).__name__}: {exc}"
+        return result
+
+    def resolve_spend_review(
+        self, review_id: int, status: str, actor: str, note: str = ""
+    ) -> UpdateResult:
+        result = UpdateResult()
+        if status not in ("resolved", "dismissed"):
+            result.error = f"Unknown status {status!r}."
+            return result
+        try:
+            with self._connect() as connection:
+                cursor = connection.execute(
+                    "UPDATE spend_reviews SET status = ?, resolved_at = CURRENT_TIMESTAMP, "
+                    "resolved_by = ?, resolution_note = ? WHERE review_id = ? AND status = 'open'",
+                    (status, actor, (note or "").strip() or None, int(review_id)),
+                )
+                connection.commit()
+                if cursor.rowcount:
+                    result.updated = 1
+                else:
+                    result.unchanged = 1
         except sqlite3.Error as exc:
             result.error = f"{type(exc).__name__}: {exc}"
         return result
@@ -1614,6 +1804,7 @@ class SqliteBackend(Backend):
         """Drop everything and rebuild. Sandbox convenience, no production analogue."""
         with self._connect() as connection:
             tables = [
+                "spend_reviews", "llm_runs",
                 "committee_plan_lines", "budget_requests",
                 "transaction_flags",  # before transactions, which it references
                 "receipts", "reimbursements", "transaction_audit", "statement_balances",
@@ -1674,6 +1865,18 @@ def _columns_for(query: str) -> list[str]:
         "statement_balances": [
             "id", "account", "period_start", "period_end",
             "opening_balance", "closing_balance", "source_file", "recorded_at",
+        ],
+        "llm_runs": [
+            "run_id", "purpose", "model", "status", "started_by", "started_at",
+            "finished_at", "rows_planned", "calls_planned", "calls_made",
+            "input_tokens", "output_tokens", "cache_read_tokens",
+            "cache_write_tokens", "reserved_usd", "cost_usd", "error",
+        ],
+        "spend_reviews": [
+            "review_id", "transaction_id", "booked_committee_id", "verdict",
+            "suggested_committee_id", "confidence", "reason", "message_to_vp",
+            "status", "run_id", "model", "prompt_version", "reviewed_at",
+            "resolved_at", "resolved_by", "resolution_note",
         ],
         "committee_plan_lines": [
             "line_id", "committee_id", "semester", "purpose", "amount", "note",
