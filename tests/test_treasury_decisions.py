@@ -840,3 +840,44 @@ def test_transfers_without_a_card_are_not_a_roster_problem():
         ]
     )
     assert check_card_roster_era(transactions, pd.DataFrame(), pd.DataFrame()) is None
+
+
+# --- 2026-11-03: semi-formal payments are not dues ---------------------------
+
+@pytest.mark.parametrize("memo", ["AIS SEMI ANDREW MUNZ", "SEMI", "YAY SEMI"])
+def test_a_semi_memo_is_a_formal_ticket(memo):
+    """'the tag lines literally say AIS semi' -- the real Fall 2026 memos."""
+    assert classify_exact(row(f"{zelle_from()} {memo}", 25.00)).committee_id == 18
+
+
+def test_semi_inside_a_name_is_not_a_ticket():
+    details = "ZELLE FROM SEMIRA JONES ON 10/26 REF # BACK4MXT4N6F"
+    assert classify_exact(row(details, 25.00)).committee_id != 18
+
+
+def test_the_model_cannot_book_dues_on_a_non_dues_amount(monkeypatch):
+    from ais_fmd.domain.categorize import pipeline
+    from ais_fmd.domain.categorize.llm import LLMOutcome, _render_row
+    from ais_fmd.domain.categorize.predicates import Classification
+
+    seen = []
+
+    def fake(residual, **_):
+        seen.extend(residual)
+        return LLMOutcome(classifications={
+            index: Classification(1, "Dues", "Model: member paying", 0.95, "llm")
+            for index, _ in residual
+        })
+
+    monkeypatch.setattr(pipeline, "classify_residual", fake)
+    ticket = row(zelle_from() + "", 25.00)
+    ticket["transaction_date"] = "2026-10-26"
+    run = categorize_records([ticket], dues=DuesSchedule([FALL_2026]))
+    assert not run.classifications[0].is_assigned, "a $25 payment is never booked as dues"
+    assert "not-a-dues-amount" in _render_row(0, seen[0][1]), "the model is told"
+
+
+def test_the_paypal_balance_moving_to_checking_is_a_transfer():
+    """Treasury, 2026-11-03: 'the 963 PayPal transfer is a transfer, non-income'."""
+    details = "PAYPAL           TRANSFER   261020 1053880175841 ASSOCIATION FOR INFORM"
+    assert classify_exact(row(details, 963.93)).committee_id == 3

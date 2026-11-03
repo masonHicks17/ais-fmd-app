@@ -138,7 +138,8 @@ def test_review_sends_the_prompt_file_the_baseline_and_a_schema(stub_model):
     assert request["model"] == "claude-haiku-5-5"
     assert request["system"][0]["text"] == load_spend_review_prompt()
     assert "cache_control" not in request["system"][0], "one batch gains nothing from a cache write"
-    assert request["thinking"] == {"type": "disabled"}
+    assert request["thinking"] == {"type": "adaptive"}, "the model reasons before it answers"
+    assert request["output_config"]["effort"] == "medium"
     assert request["output_config"]["format"]["type"] == "json_schema"
     assert "temperature" not in request, "Haiku 5.5 rejects non-default sampling"
     user = request["messages"][0]["content"]

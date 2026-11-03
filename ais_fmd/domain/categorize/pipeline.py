@@ -31,10 +31,11 @@ spot-check and evaluation tools); it just no longer turns into a rule.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 import pandas as pd
 
+from ..money import parse_amount
 from .llm import LLMOutcome, classify_residual
 from .metering import ModelGate
 from .predicates import (
@@ -43,6 +44,7 @@ from .predicates import (
     DuesSchedule,
     exact_rules,
     first_match,
+    is_dues_amount,
 )
 from ...config.categories import committee_name
 from .predicates import COMMITTEE_PURPOSE
@@ -204,15 +206,30 @@ def categorize_records(
                 continue
 
         # Unscored, or scored too close to call: a human or the model decides.
-        # Whatever the rules recognised on the way travels with the row.
-        residual.append((index, _with_note(record, results[index].rule)))
+        # Whatever the rules recognised on the way travels with the row, and
+        # so does whether a payment is at a dues rate -- without it the model
+        # read "AIS" and a member's name as dues on $25 semi-formal tickets
+        # (Fall 2026 statement, 2026-11-03).
+        sent = _with_note(record, results[index].rule)
+        if _incoming(record):
+            sent = {**sent, "dues_amount": is_dues_amount(record, dues)}
+        residual.append((index, sent))
 
     # The model only books what it is sure of; the rest reaches a human with
     # its suggestion attached.
     outcome = (
         classify_residual(residual) if gate is None else classify_residual(residual, gate=gate)
     )
+    sent_by_index = dict(residual)
     for index, classification in outcome.classifications.items():
+        if classification.committee_id == 1 and sent_by_index.get(index, {}).get("dues_amount") is False:
+            # Dues is a fixed price list. Whatever the model says, an amount
+            # that is not on it is not booked as dues; it goes to a human.
+            classification = replace(
+                classification,
+                confidence=0.0,
+                rule=f"{classification.rule} (not a dues amount this term, so not booked)",
+            )
         if classification.confidence >= threshold:
             results[index] = classification
         else:
@@ -231,6 +248,11 @@ def categorize_records(
     return CategorizationRun(
         classifications=results, llm=outcome, proposals=proposals, residual=residual
     )
+
+
+def _incoming(record: dict) -> bool:
+    amount = parse_amount(record.get("amount"))
+    return amount is not None and amount > 0
 
 
 def _with_note(record: dict, note: str) -> dict:

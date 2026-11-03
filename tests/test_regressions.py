@@ -226,3 +226,22 @@ def test_f7_disputed_mappings_are_reported():
     row = report[report["Purpose"] == "Professional Development"].iloc[0]
     assert row["Transactions"] == 1
     assert "7" in row["Currently mapped to"]
+
+
+def test_stored_rows_read_back_as_timestamps_are_still_duplicates():
+    """
+    The Supabase backend returns transaction_date as a pandas Timestamp. On the
+    real Fall 2026 statement the Import page called all 277 rows new when 199
+    were already stored, because "2026-08-17 00:00:00" != "2026-08-17".
+    """
+    import pandas as pd
+
+    from ais_fmd.domain.dedupe import natural_key, split_new_and_duplicate
+
+    staged = {"transaction_date": "2026-08-17", "amount": -298.96,
+              "details": "PURCHASE AUTHORIZED ON 08/15 TST*MACDINTONS", "account": "Wells Fargo"}
+    stored = dict(staged, transaction_date=pd.Timestamp("2026-08-17"))
+    result = split_new_and_duplicate([staged], [stored])
+    assert result.new == [] and len(result.duplicates) == 1
+    # Strings are untouched, so every key already in the database still matches.
+    assert natural_key(staged) == natural_key(dict(staged))

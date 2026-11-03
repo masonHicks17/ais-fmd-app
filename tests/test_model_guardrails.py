@@ -268,9 +268,9 @@ def test_an_unpriced_model_is_never_admitted(backend, monkeypatch):
 
 
 def test_a_full_run_costs_cents_at_worst():
-    """200 charges, five calls, every retry, full output: about five cents on Haiku."""
+    """200 charges, five calls, every retry, full output with thinking: under a dime on Haiku."""
     plan = metering.RunPlan("spend_review", rows=200, calls=5, prompt_chars_per_call=34000)
-    assert plan.reservation_usd("claude-haiku-5-5", 8000) < 0.06
+    assert plan.reservation_usd("claude-haiku-5-5", settings.HARD_MAX_OUTPUT_TOKENS) < 0.10
 
 
 def test_the_ledger_records_what_was_spent(backend, model):

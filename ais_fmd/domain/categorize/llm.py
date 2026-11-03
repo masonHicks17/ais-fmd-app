@@ -107,13 +107,21 @@ Choose exactly one committee ID per transaction:
   0  Unknown                 genuinely cannot tell
 
 Rules of thumb:
-  - Weekday_Hint of Tuesday or Wednesday plus a food merchant suggests 8 -- \
-but if the note says the card belongs to Consulting, a large order is often \
-Consulting catering its own event. Only choose 8 over the card with a reason.
-  - The VP of Operations' card buys mostly meeting food (8). Her own \
-committee (6) gets the occasional rewards or appreciation outing -- a sit-down \
-restaurant bill for a few people rather than a meeting-sized order.
+  - Weekday_Hint of Monday, Tuesday or Wednesday plus a food merchant \
+suggests 8 -- but food on a Consulting card is Consulting's own catering (7).
+  - The VP of Operations' card buys the meeting food (8). Her own committee \
+(6) gets only socials -- a bar, or a sit-down dinner for a few people.
   - A bar, brewery or liquor store is 5, never 8.
+  - Dues (1) is a fixed price list. Local_Hints says dues-rate-amount when an \
+incoming payment is at one of this term's dues rates, and not-a-dues-amount \
+when it is not. Never choose 1 for a not-a-dues-amount row, whatever the memo \
+or payer looks like: "AIS" in a memo or a member paying does not make it dues.
+  - "SEMI", "SEMIFORMAL" or "FORMAL" in a memo is a semi-formal ticket (18). \
+Shirt, crewneck, sweater or hoodie in a memo is merch (13).
+  - An incoming payment whose memo is empty or only the payer's name, at a \
+not-a-dues-amount, is usually a ticket (18) or merch (13), and the bank line \
+cannot say which. Suggest the likelier one with confidence 0.5 or lower so a \
+human checks it against the sign-up lists.
   - An incoming payment at a dues amount is dues unless its memo clearly says \
 it paid for something else; then choose that.
   - Report confidence honestly. Anything under 0.75 is sent to a human with \
@@ -184,6 +192,10 @@ def _render_row(index: int, record: dict) -> str:
         hints.append("food-merchant-keyword")
     if looks_like_bar(details):
         hints.append("bar-keyword")
+    if record.get("dues_amount") is True:
+        hints.append("dues-rate-amount")
+    elif record.get("dues_amount") is False:
+        hints.append("not-a-dues-amount")
     line = (
         f'{index}. Details: {details[:180]} | Amount: {record.get("amount")} | '
         f'Account: {record.get("account") or ""} | Weekday_Hint: {weekday} | '
@@ -395,10 +407,14 @@ def _call_model(client, gate: ModelGate, *, system: str, user: str, schema: dict
         model=gate.model,
         max_tokens=gate.max_output_tokens,
         system=[system_block],
-        # A short structured judgement: no thinking, low effort.
-        thinking={"type": "disabled"},
+        # Reasoning on, at medium effort (treasury, 2026-11-03). With thinking
+        # off at low effort, Haiku read "AIS" and a member's name as dues on $25
+        # semi-formal tickets instead of weighing the amount and the memo.
+        # Thinking tokens count toward max_tokens, which is why the output
+        # ceiling is 16,000 (settings.HARD_MAX_OUTPUT_TOKENS).
+        thinking={"type": "adaptive"},
         output_config={
-            "effort": "low",
+            "effort": "medium",
             "format": {"type": "json_schema", "schema": schema},
         },
         messages=[{"role": "user", "content": user}],

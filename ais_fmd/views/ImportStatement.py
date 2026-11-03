@@ -28,7 +28,6 @@ import streamlit as st
 
 from ais_fmd import auth, settings
 from ais_fmd.config.categories import (
-    ACCOUNT_VENMO,
     ACCOUNT_WELLS_FARGO,
     committee_dropdown_options,
     committee_label,
@@ -41,25 +40,21 @@ from ais_fmd.data import repositories as repo
 from ais_fmd.domain import dues, model_runs
 from ais_fmd.domain.categorize.pipeline import AUTO_APPLY_THRESHOLD, categorize_frame, categorize_records
 from ais_fmd.domain.dedupe import split_new_and_duplicate
-from ais_fmd.domain.parsers import venmo, wells_fargo
+from ais_fmd.domain.parsers import wells_fargo
 from ais_fmd.ui import shell
 from ais_fmd.ui import spend_review as spend_review_ui
 
 identity = auth.require(auth.Role.TREASURER)
 
-SOURCES = {
-    "Wells Fargo checking": {
-        "parser": wells_fargo,
-        "account": ACCOUNT_WELLS_FARGO,
-        "hint": "Wells Fargo checking export (CSV or Excel).",
-        "filename_hint": "checking",
-    },
-    "Venmo": {
-        "parser": venmo,
-        "account": ACCOUNT_VENMO,
-        "hint": "Venmo statement export (CSV or Excel).",
-        "filename_hint": "venmo",
-    },
+# Wells Fargo checking only. Venmo was retired in April 2026 and treasury will
+# not use it again (2026-11-03), so it is no longer offered; its parser stays
+# for the history already imported from it.
+SOURCE_NAME = "Wells Fargo checking"
+SOURCE = {
+    "parser": wells_fargo,
+    "account": ACCOUNT_WELLS_FARGO,
+    "hint": "Wells Fargo checking export (CSV or Excel).",
+    "filename_hint": "checking",
 }
 _CATEGORIZED_COLUMNS = ("budget_category", "purpose", "match_rule", "match_confidence", "match_source")
 _UPLOADER_ROUND = "_import_uploader_round"
@@ -195,8 +190,7 @@ if done:
     shell.notify("success", done)
 
 _step(1, "Upload")
-source_name = st.radio("Statement source", list(SOURCES), horizontal=True, key="upload_source")
-source = SOURCES[source_name]
+source_name, source = SOURCE_NAME, SOURCE
 st.caption(source["hint"])
 uploaded = st.file_uploader(
     f"Upload {source_name} statement",
@@ -221,11 +215,9 @@ if uploaded is not None:
 
     try:
         if file_name.lower().endswith(".csv"):
-            header = None if source_name == "Wells Fargo checking" else "infer"
-            raw = pd.read_csv(uploaded, header=header)
+            raw = pd.read_csv(uploaded, header=None)
         else:
-            header = None if source_name == "Wells Fargo checking" else 0
-            raw = pd.read_excel(uploaded, header=header)
+            raw = pd.read_excel(uploaded, header=None)
     except Exception as exc:  # noqa: BLE001
         raw = None
         shell.error_state("Could not read the file", f"{type(exc).__name__}: {exc}")

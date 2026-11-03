@@ -190,7 +190,7 @@ HARD_MAX_ROWS_PER_RUN = 1000
 HARD_MAX_CALLS_PER_RUN = 25
 HARD_MAX_RUNS_PER_DAY = 20
 HARD_RUN_DEADLINE_SECONDS = 300
-HARD_MAX_OUTPUT_TOKENS = 8000
+HARD_MAX_OUTPUT_TOKENS = 16000
 
 def llm_monthly_cap_usd() -> float:
     """Most the app may spend on model calls in one calendar month (UTC)."""
@@ -230,9 +230,10 @@ def llm_run_deadline_seconds() -> int:
 
 
 def llm_max_output_tokens() -> int:
-    """Per call. A batch of 40 verdicts with VP messages is ~4,000 tokens."""
+    """Per call, thinking included. A batch of 40 verdicts with VP messages is ~4,000 tokens
+    of answer; the rest is room for the model to reason first."""
     return _positive_int(
-        "AIS_FMD_LLM_MAX_OUTPUT_TOKENS", 8000, ceiling=HARD_MAX_OUTPUT_TOKENS
+        "AIS_FMD_LLM_MAX_OUTPUT_TOKENS", 16000, ceiling=HARD_MAX_OUTPUT_TOKENS
     )
 
 
