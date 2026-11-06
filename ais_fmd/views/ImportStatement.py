@@ -127,19 +127,33 @@ def _model_pass(new_rows: list[dict], schedule) -> None:
 
     shell.notify(*saved["note"])
     st.markdown("**What Haiku did**")
-    shell.dataframe(
-        saved["table"],
+    st.caption(
+        "Change **Book as** to correct or accept Haiku's pick; it carries into the import "
+        "table below. Leave it blank to send the row to the Review Queue."
+    )
+    table = saved["table"]
+    edited = st.data_editor(
+        table,
+        key=f"{state_key}_book_as",
+        width="stretch",
+        hide_index=True,
+        column_order=[column for column in table.columns if column != "natural_key"],
+        disabled=True if identity.read_only else [c for c in table.columns if c != "Book as"],
         column_config={
             "Amount": st.column_config.NumberColumn(format="$%.2f"),
             "Confidence": st.column_config.ProgressColumn(format="%.0f%%", min_value=0, max_value=100),
             "Details": st.column_config.TextColumn(width="large"),
+            "Book as": st.column_config.SelectboxColumn(
+                options=committee_dropdown_options(), required=False
+            ),
             "Haiku's reason": st.column_config.TextColumn(width="large"),
         },
     )
-    for record in new_rows:
-        found = saved["answers"].get(str(record.get("natural_key")))
-        if found and pd.isna(record.get("budget_category")):
-            record["budget_category"], record["purpose"], record["match_rule"] = found
+    model_runs.apply_categorizer_choices(
+        new_rows,
+        {key: parse_committee_label(choice) for key, choice in zip(table["natural_key"], edited["Book as"])},
+        saved["answers"],
+    )
 
 
 def _what_haiku_did(records: list[dict], run) -> pd.DataFrame:
@@ -168,8 +182,11 @@ def _what_haiku_did(records: list[dict], run) -> pd.DataFrame:
                 "Details": " ".join(str(record.get("details") or "").split())[:120],
                 "Haiku's pick": pick,
                 "Confidence": confidence,
+                # Editable: starts as what was booked, blank when Haiku was unsure.
+                "Book as": committee_label(final.committee_id) if final.is_assigned else "",
                 "What happened": outcome,
                 "Haiku's reason": reason,
+                "natural_key": str(record.get("natural_key")),
             }
         )
     return pd.DataFrame(rows)

@@ -381,3 +381,28 @@ def test_a_secret_can_still_lower_the_monthly_cap(monkeypatch):
 def test_a_nonsense_monthly_cap_never_opens_the_tap(monkeypatch, value):
     monkeypatch.setenv("AIS_FMD_LLM_MONTHLY_CAP_USD", value)
     assert settings.llm_monthly_cap_usd() <= settings.HARD_MONTHLY_CAP_USD
+
+
+# --- The Import page's editable "Book as" column ----------------------------
+
+def test_book_as_choices_post_to_the_import_rows():
+    """Treasury, 2026-11-03: 'edit the haiku responses and have them post to the transactions'."""
+    rows = [
+        {"natural_key": "a", "budget_category": None, "purpose": None, "match_rule": ""},
+        {"natural_key": "b", "budget_category": 18, "purpose": "Formal", "match_rule": "Model: ticket"},
+        {"natural_key": "c", "budget_category": 13, "purpose": "Merch", "match_rule": "Model: crewneck"},
+        {"natural_key": "d", "budget_category": 1, "purpose": "Dues", "match_rule": "rule"},
+    ]
+    picks = {
+        "a": (None, None, "Model suggests Merch (40%) -- no memo"),
+        "b": (18, "Formal", "Model: ticket"),
+        "c": (13, "Merch", "Model: crewneck"),
+    }
+    model_runs.apply_categorizer_choices(rows, {"a": 18, "b": 18, "c": None}, picks)
+
+    assert rows[0]["budget_category"] == 18 and rows[0]["purpose"], "a correction is booked"
+    assert "treasurer" in rows[0]["match_rule"] and "Merch (40%)" in rows[0]["match_rule"]
+    assert rows[1] == {"natural_key": "b", "budget_category": 18, "purpose": "Formal",
+                       "match_rule": "Model: ticket"}, "an accepted pick is unchanged"
+    assert rows[2]["budget_category"] is None and rows[2]["purpose"] is None, "blank goes to review"
+    assert rows[3]["budget_category"] == 1, "rows Haiku never saw are untouched"

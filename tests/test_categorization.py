@@ -228,7 +228,7 @@ def test_the_model_only_books_what_it_is_sure_of(monkeypatch):
 
     seen = []
 
-    def fake(residual):
+    def fake(residual, **_):
         seen.extend(residual)
         return LLMOutcome(classifications={
             0: Classification(7, "Professional Development", "Model: consulting event", 0.9, "llm"),

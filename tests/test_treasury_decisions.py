@@ -117,7 +117,7 @@ def test_a_conflicting_memo_reaches_the_model_with_the_reason(monkeypatch):
     from ais_fmd.domain.categorize.llm import LLMOutcome
 
     seen = []
-    monkeypatch.setattr(pipeline, "classify_residual", lambda r: seen.extend(r) or LLMOutcome())
+    monkeypatch.setattr(pipeline, "classify_residual", lambda r, **_: seen.extend(r) or LLMOutcome())
     run = categorize_records([row(zelle_from() + " PAY BACK FOR DINNER", 50.00)],
                              dues=DuesSchedule([FALL_2026]))
     assert not run.classifications[0].is_assigned
@@ -881,3 +881,41 @@ def test_the_paypal_balance_moving_to_checking_is_a_transfer():
     """Treasury, 2026-11-03: 'the 963 PayPal transfer is a transfer, non-income'."""
     details = "PAYPAL           TRANSFER   261020 1053880175841 ASSOCIATION FOR INFORM"
     assert classify_exact(row(details, 963.93)).committee_id == 3
+
+
+# --- 2026-11-06: the model sees the rest of the upload ----------------------
+
+def test_the_model_is_told_what_the_rest_of_the_upload_was(monkeypatch):
+    """A no-memo $25 among semi-formal tickets: the context says $25 was a ticket price."""
+    from ais_fmd.domain.categorize import pipeline
+    from ais_fmd.domain.categorize.llm import LLMOutcome, residual_listing_chars
+
+    sent = {}
+
+    def fake(residual, **kwargs):
+        sent.update(kwargs)
+        return LLMOutcome()
+
+    monkeypatch.setattr(pipeline, "classify_residual", fake)
+    tickets = [row(f"{zelle_from(f'Member {n}')} SEMI", 25.00, when="2026-10-26") for n in range(3)]
+    merch = row(f"{zelle_from('Member M')} AIS CREWNECK", 30.00, when="2026-10-22")
+    unknown = row(zelle_from("Diana Perez"), 25.00, when="2026-11-03")
+    run = categorize_records([*tickets, merch, unknown], dues=DuesSchedule([FALL_2026]))
+
+    assert "18 Formal: 3 payment(s), $25.00 x3" in sent["context"]
+    assert "13 Merch: 1 payment(s), $30.00 x1" in sent["context"]
+    assert '"SEMI"' in sent["context"], "sample memos travel with it"
+    assert run.context == sent["context"]
+    # The run is sized with the context, so metering reserves for what is sent.
+    assert residual_listing_chars(run.residual, run.context) > residual_listing_chars(run.residual)
+
+
+def test_no_context_is_sent_when_nothing_is_left_for_the_model(monkeypatch):
+    from ais_fmd.domain.categorize import pipeline
+    from ais_fmd.domain.categorize.llm import LLMOutcome
+
+    calls = []
+    monkeypatch.setattr(pipeline, "classify_residual", lambda r, **kw: calls.append((r, kw)) or LLMOutcome())
+    run = categorize_records([row(f"{zelle_from()} SEMI", 25.00)], dues=DuesSchedule([FALL_2026]))
+    assert run.context == "" and run.classifications[0].committee_id == 18
+    assert calls == [([], {})], "nothing to send, so no context either"

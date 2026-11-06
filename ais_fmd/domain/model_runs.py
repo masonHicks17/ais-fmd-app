@@ -31,6 +31,7 @@ from ..config.categories import COMMITTEE_BY_ID
 from . import dues as dues_domain
 from .categorize import llm, metering
 from .categorize.pipeline import CategorizationRun, categorize_records
+from .categorize.predicates import COMMITTEE_PURPOSE
 from .terms import attach_semester
 
 REVIEW_WINDOW_DAYS = 180
@@ -266,8 +267,42 @@ def categorizer_plan(run: CategorizationRun) -> metering.RunPlan:
         purpose="categorize",
         rows=len(residual),
         calls=metering.plan_calls(len(residual), settings.llm_batch_size()),
-        prompt_chars_per_call=llm.residual_listing_chars(residual) if residual else 0,
+        prompt_chars_per_call=llm.residual_listing_chars(residual, run.context) if residual else 0,
     )
+
+
+def apply_categorizer_choices(
+    records: list[dict],
+    choices: dict[str, int | None],
+    picks: dict[str, tuple[int | None, str | None, str]],
+) -> None:
+    """
+    Write the treasurer's "Book as" choices onto the upload's rows, in place.
+
+    `choices` maps a row's natural key to the committee chosen for it on the
+    Import page's Haiku table (None = left blank, which sends the row to the
+    Review Queue). `picks` is what the pipeline booked after Haiku, keyed the
+    same way, as (committee, purpose, reason). A row whose choice matches that
+    keeps Haiku's purpose and reason; a changed one gets the committee's own
+    purpose and a reason that says a person decided it (treasury, 2026-11-03:
+    "the ability to edit the haiku responses and have them post to the
+    transactions for import").
+    """
+    for record in records:
+        key = str(record.get("natural_key"))
+        if key not in choices:
+            continue
+        chosen = choices[key]
+        booked, purpose, reason = picks.get(key, (None, None, ""))
+        if chosen is None:
+            record["budget_category"], record["purpose"] = None, None
+            record["match_rule"] = f"Left for the Review Queue. {reason}".strip()
+        elif chosen == booked:
+            record["budget_category"], record["purpose"], record["match_rule"] = booked, purpose, reason
+        else:
+            record["budget_category"] = chosen
+            record["purpose"] = COMMITTEE_PURPOSE.get(chosen)
+            record["match_rule"] = f"Chosen by the treasurer on import. Haiku: {reason}".strip()
 
 
 def run_categorizer(

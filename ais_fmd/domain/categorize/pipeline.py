@@ -31,6 +31,7 @@ spot-check and evaluation tools); it just no longer turns into a rule.
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass, field, replace
 
 import pandas as pd
@@ -44,6 +45,7 @@ from .predicates import (
     DuesSchedule,
     exact_rules,
     first_match,
+    extract_memo,
     is_dues_amount,
 )
 from ...config.categories import committee_name
@@ -70,6 +72,9 @@ class CategorizationRun:
     # What would go to the model, whether or not it was sent. A metered run is
     # sized from this before it starts.
     residual: list[tuple[int, dict]] = field(default_factory=list)
+    # How the rules booked the rest of the upload, sent to the model with the
+    # residual (`statement_context`). Part of what a metered run is sized from.
+    context: str = ""
 
     @property
     def total(self) -> int:
@@ -217,9 +222,13 @@ def categorize_records(
 
     # The model only books what it is sure of; the rest reaches a human with
     # its suggestion attached.
-    outcome = (
-        classify_residual(residual) if gate is None else classify_residual(residual, gate=gate)
-    )
+    context = statement_context(records, results) if residual else ""
+    kwargs: dict = {}
+    if gate is not None:
+        kwargs["gate"] = gate
+    if context:
+        kwargs["context"] = context
+    outcome = classify_residual(residual, **kwargs)
     sent_by_index = dict(residual)
     for index, classification in outcome.classifications.items():
         if classification.committee_id == 1 and sent_by_index.get(index, {}).get("dues_amount") is False:
@@ -246,13 +255,64 @@ def categorize_records(
             )
 
     return CategorizationRun(
-        classifications=results, llm=outcome, proposals=proposals, residual=residual
+        classifications=results,
+        llm=outcome,
+        proposals=proposals,
+        residual=residual,
+        context=context,
     )
 
 
 def _incoming(record: dict) -> bool:
     amount = parse_amount(record.get("amount"))
     return amount is not None and amount > 0
+
+
+# How many committees, and memos per committee, the context lists. Enough to
+# show what was on sale; small enough to cost nothing next to the rows.
+_CONTEXT_COMMITTEES = 8
+_CONTEXT_MEMOS = 3
+
+
+def statement_context(records: list[dict], results: list[Classification]) -> str:
+    """
+    How the rules booked this upload's incoming payments, one line per committee.
+
+    The model sees each leftover row on its own, so it cannot tell that the
+    same weeks brought dozens of "SEMI" payments at $25 and $40 and merch at
+    $15, $30 and $40. On the Fall 2026 statement it guessed two no-memo $25
+    ticket payments were merch for want of exactly that. Treasury, 2026-11-03:
+    the model "shouldn't be insanely locked into its rules but look at the
+    context" -- this is the context.
+    """
+    groups: dict[int, list[tuple[dict, float]]] = {}
+    for record, result in zip(records, results):
+        amount = parse_amount(record.get("amount"))
+        if amount is None or amount <= 0 or not result.is_assigned:
+            continue
+        groups.setdefault(result.committee_id, []).append((record, float(amount)))
+
+    lines = []
+    ranked = sorted(groups.items(), key=lambda item: -len(item[1]))[:_CONTEXT_COMMITTEES]
+    for committee_id, rows in ranked:
+        amounts = Counter(amount for _, amount in rows)
+        dates = sorted(str(record.get("transaction_date"))[:10] for record, _ in rows)
+        memos: list[str] = []
+        for record, _ in rows:
+            memo = " ".join(extract_memo(record.get("details")).split())[:40]
+            if memo and memo not in memos:
+                memos.append(memo)
+            if len(memos) == _CONTEXT_MEMOS:
+                break
+        priced = ", ".join(f"${amount:,.2f} x{count}" for amount, count in amounts.most_common(4))
+        line = (
+            f"- {committee_id} {committee_name(committee_id)}: {len(rows)} payment(s), "
+            f"{priced}; {dates[0]} to {dates[-1]}"
+        )
+        if memos:
+            line += "; memos like " + " / ".join(f'"{memo}"' for memo in memos)
+        lines.append(line)
+    return "\n".join(lines)
 
 
 def _with_note(record: dict, note: str) -> dict:

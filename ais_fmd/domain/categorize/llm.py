@@ -118,10 +118,15 @@ when it is not. Never choose 1 for a not-a-dues-amount row, whatever the memo \
 or payer looks like: "AIS" in a memo or a member paying does not make it dues.
   - "SEMI", "SEMIFORMAL" or "FORMAL" in a memo is a semi-formal ticket (18). \
 Shirt, crewneck, sweater or hoodie in a memo is merch (13).
-  - An incoming payment whose memo is empty or only the payer's name, at a \
-not-a-dues-amount, is usually a ticket (18) or merch (13), and the bank line \
-cannot say which. Suggest the likelier one with confidence 0.5 or lower so a \
-human checks it against the sign-up lists.
+  - Statement_Context, when given, lists how the rules booked the rest of \
+this upload's incoming payments: per committee, the amounts, the dates and \
+some memos. Reason from it. A payment with no clear memo whose amount and date \
+match only one committee's payments there (for example $25 when only \
+semi-formal tickets sold at $25 that week) most likely belongs to that \
+committee: choose it, with the confidence the match deserves. A short or \
+unusual memo ("TICKET", "ME NON AIS DATE") is read the same way. When more \
+than one committee took that amount in those dates, choose the likelier and \
+keep confidence at 0.5 or lower so a human checks the sign-up lists.
   - An incoming payment at a dues amount is dues unless its memo clearly says \
 it paid for something else; then choose that.
   - Report confidence honestly. Anything under 0.75 is sent to a human with \
@@ -285,14 +290,19 @@ def _parse_response(payload: str, batch: list[tuple[int, dict]]) -> dict[int, Cl
 
 
 def classify_residual(
-    residual: list[tuple[int, dict]], *, gate: ModelGate | None = None
+    residual: list[tuple[int, dict]],
+    *,
+    gate: ModelGate | None = None,
+    context: str = "",
 ) -> LLMOutcome:
     """
     Classify the rows nothing else could resolve.
 
     `residual` is a list of (original_index, record) so results can be mapped
     back onto the caller's ordering without relying on positional alignment.
-    Without a `gate` nothing is sent: see the module docstring.
+    `context` is `pipeline.statement_context`: how the rules booked the rest
+    of the upload, sent ahead of every batch. Without a `gate` nothing is
+    sent: see the module docstring.
     """
     outcome = LLMOutcome()
     if not residual:
@@ -318,7 +328,7 @@ def classify_residual(
                 client,
                 gate,
                 system=_SYSTEM_PROMPT,
-                user=f"Transactions:\n{listing}",
+                user=f"{_context_block(context)}Transactions:\n{listing}",
                 schema=_CATEGORIZE_SCHEMA,
                 cache_system=len(batches) > 1,
             )
@@ -709,7 +719,11 @@ def review_listing_chars(rows: list[tuple[int, dict]], dues_baseline: str | None
     return system + baseline + largest + len("Transactions:\n")
 
 
-def residual_listing_chars(residual: list[tuple[int, dict]]) -> int:
+def _context_block(context: str) -> str:
+    return f"Statement_Context:\n{context}\n\n" if context else ""
+
+
+def residual_listing_chars(residual: list[tuple[int, dict]], context: str = "") -> int:
     """The largest prompt any one categorizer batch of `residual` will send."""
     largest = 0
     for batch in _batches(residual):
@@ -717,4 +731,4 @@ def residual_listing_chars(residual: list[tuple[int, dict]]) -> int:
             _render_row(local, record) for local, (_, record) in enumerate(batch, start=1)
         )
         largest = max(largest, len(listing))
-    return len(_SYSTEM_PROMPT) + largest + len("Transactions:\n")
+    return len(_SYSTEM_PROMPT) + len(_context_block(context)) + largest + len("Transactions:\n")

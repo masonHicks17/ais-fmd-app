@@ -261,7 +261,9 @@ here is `other_committee`.
 The treasurer's own operating costs, plus merch the chapter sells. 39 payments
 out, mostly 2022-2024; little since 2025.
 - Card (median $79): apparel and print orders (Sunshine Fits, $300-$1,200; Rad
-  Wear $184; honor cords and grad stoles ~$130; LogoKick ~$56); small software
+  Wear $86-$184 -- the VPs' polos and graduation stoles, which are Treasury's
+  own spending, treasurer 2026-11-06; honor cords and grad stoles ~$130;
+  LogoKick ~$56); small software
   (Canva $16, Ablebits $20); state filing fees ($61); Amazon ($16-$161); the
   treasurer's phone line (US Mobile, $96, card 3466 from Fall 2026).
 - Zelle/Venmo out (median $62, max $380): reimbursements for exec polos, merch
