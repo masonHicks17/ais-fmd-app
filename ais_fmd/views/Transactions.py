@@ -46,7 +46,7 @@ bundle = repo.load_bundle()
 semesters = ordered_semesters(bundle.terms)
 
 if bundle.transactions.empty:
-    shell.empty_state("No transactions yet", "Upload a statement from Transactions → Upload statement.")
+    shell.empty_state("No transactions yet", "Upload a statement from Transactions → Import.")
     st.stop()
 
 # --- Filters -----------------------------------------------------------------

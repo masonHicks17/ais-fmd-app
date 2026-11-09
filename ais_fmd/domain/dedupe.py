@@ -35,7 +35,10 @@ import hashlib
 import re
 from collections import Counter
 from dataclasses import dataclass, field
+from datetime import date, datetime, time
 from typing import Sequence
+
+import pandas as pd
 
 from ..config.categories import normalize_account
 from .money import parse_amount
@@ -48,12 +51,34 @@ def _normalize_details(details: object) -> str:
     return _WHITESPACE.sub(" ", text).strip().lower()
 
 
+def _date_text(value: object) -> str:
+    """
+    A transaction date as the parsers write it: "YYYY-MM-DD".
+
+    Stored rows can come back as timestamps -- the Supabase backend converts the
+    column with `pd.to_datetime` -- and `str()` of one is "2026-08-17 00:00:00",
+    which matches no freshly parsed row. On the real Fall 2026 statement that
+    made the Import page call all 277 rows new when 199 were already stored (the
+    database's unique key still refused them). A midnight timestamp is reduced to
+    its date; strings are left exactly as they were, so no stored key changes.
+    """
+    if value is None or value is pd.NaT:
+        return ""
+    if isinstance(value, datetime):
+        if value.time() == time(0):
+            return value.strftime("%Y-%m-%d")
+        return str(value)
+    if isinstance(value, date):
+        return value.isoformat()
+    return str(value).strip()
+
+
 def identity_tuple(record: dict) -> tuple[str, str, str, str]:
     """The part of a transaction that makes it 'the same transaction'."""
     amount = parse_amount(record.get("amount"))
     amount_text = "none" if amount is None else f"{amount:.2f}"
     return (
-        str(record.get("transaction_date") or "").strip(),
+        _date_text(record.get("transaction_date") or None),
         amount_text,
         _normalize_details(record.get("details")),
         str(normalize_account(record.get("account")) or "").lower(),

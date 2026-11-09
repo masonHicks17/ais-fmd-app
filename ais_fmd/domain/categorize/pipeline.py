@@ -10,6 +10,7 @@ The order is the whole point:
                            committee, unless the other evidence confidently
                            names a different one (treasury ruling, 2026-10-01;
                            from 2026-09-23 until then the card was absolute).
+                           Consulting's card is never overruled (2026-11-03).
     3. Scoring          -- keyword, weekday and amount evidence, gated on
                            confidence; the uncertain rest goes to a human
     4. The model        -- only what is genuinely left over
@@ -30,26 +31,29 @@ spot-check and evaluation tools); it just no longer turns into a rule.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from collections import Counter
+from dataclasses import dataclass, field, replace
 
 import pandas as pd
 
+from ..money import parse_amount
 from .llm import LLMOutcome, classify_residual
+from .metering import ModelGate
 from .predicates import (
     UNMATCHED,
     Classification,
     DuesSchedule,
     exact_rules,
     first_match,
+    extract_memo,
+    is_dues_amount,
 )
 from ...config.categories import line_name as committee_name
 from .predicates import COMMITTEE_PURPOSE
 from .scoring import (
     AUTO_APPLY_THRESHOLD,
     CARD_OVERRULE_EVIDENCE,
-    MEETING_DAY_FOOD_EVIDENCE,
-    REVIEW_MEETING_DAY_FOOD_ON,
-    REVIEW_ON_CARD_CONFLICT,
+    CARD_NEVER_OVERRULED,
     CardRegistry,
     ScoredResult,
     score,
@@ -65,6 +69,12 @@ class CategorizationRun:
     # Scored results by row position, including ones held back as too uncertain
     # to apply. The review queue reads these to show its reasoning.
     proposals: dict[int, ScoredResult] = field(default_factory=dict)
+    # What would go to the model, whether or not it was sent. A metered run is
+    # sized from this before it starts.
+    residual: list[tuple[int, dict]] = field(default_factory=list)
+    # How the rules booked the rest of the upload, sent to the model with the
+    # residual (`statement_context`). Part of what a metered run is sized from.
+    context: str = ""
 
     @property
     def total(self) -> int:
@@ -118,6 +128,7 @@ def categorize_records(
     cards: CardRegistry | None = None,
     dues: DuesSchedule | None = None,
     threshold: float = AUTO_APPLY_THRESHOLD,
+    gate: ModelGate | None = None,
 ) -> CategorizationRun:
     """
     Classify a list of transaction dicts.
@@ -130,6 +141,11 @@ def categorize_records(
 
     `dues` supplies per-term dues rates. Omitted, `rule_dues` falls back to the
     Fall 2024 constant it always used -- see `predicates.DuesSchedule`.
+
+    `gate` is a metered run's permission to call the model (see
+    `metering.open_run`). Without one the residual is still collected, but
+    nothing is sent: page loads, the Review Queue, evaluation and the seed all
+    come through here without a gate.
     """
     registry = cards or CardRegistry()
     # The same scorer with no card in it: "what does everything *else* say?"
@@ -158,35 +174,22 @@ def categorize_records(
             others = score(record, cards=no_cards)
             if others.winner is None or others.winner == carded.committee_id:
                 results[index] = carded
-            elif _overrules_the_card(others, threshold):
-                if carded.committee_id in REVIEW_ON_CARD_CONFLICT:
-                    # Too common a collision to auto-book either way. The
-                    # proposal is scored *with* the card, so the queue shows
-                    # the card's committee first and what contested it.
-                    proposals[index] = score(record, cards=registry)
-                    results[index] = _card_contested(carded, others)
-                    residual.append((index, _with_note(record, results[index].rule)))
-                    continue
+            elif carded.committee_id not in CARD_NEVER_OVERRULED and _overrules_the_card(
+                others, threshold
+            ):
                 proposals[index] = others
                 results[index] = _card_overruled(carded, others)
-            elif (
-                carded.committee_id in REVIEW_MEETING_DAY_FOOD_ON
-                and others.winner == 8
-                and others.top_score >= MEETING_DAY_FOOD_EVIDENCE
-            ):
-                # A cardholder who mostly buys meeting food, buying food on a
-                # meeting day: too likely to be meeting food to default to her
-                # committee, not certain enough to book. The model decides.
-                proposals[index] = others
-                results[index] = _card_contested(carded, others)
-                residual.append((index, _with_note(record, results[index].rule)))
-                continue
             else:
+                verdict = (
+                    f"{committee_name(carded.committee_id)}'s card is never overruled"
+                    if carded.committee_id in CARD_NEVER_OVERRULED
+                    else "not enough to overrule the card"
+                )
                 results[index] = registry.default_for(
                     record,
                     note=(
                         f"; other signals lean {committee_name(others.winner)} "
-                        f"({others.confidence:.0%}), not enough to overrule the card"
+                        f"({others.confidence:.0%}), {verdict}"
                     ),
                 )
             continue
@@ -208,13 +211,34 @@ def categorize_records(
                 continue
 
         # Unscored, or scored too close to call: a human or the model decides.
-        # Whatever the rules recognised on the way travels with the row.
-        residual.append((index, _with_note(record, results[index].rule)))
+        # Whatever the rules recognised on the way travels with the row, and
+        # so does whether a payment is at a dues rate -- without it the model
+        # read "AIS" and a member's name as dues on $25 semi-formal tickets
+        # (Fall 2026 statement, 2026-11-03).
+        sent = _with_note(record, results[index].rule)
+        if _incoming(record):
+            sent = {**sent, "dues_amount": is_dues_amount(record, dues)}
+        residual.append((index, sent))
 
     # The model only books what it is sure of; the rest reaches a human with
     # its suggestion attached.
-    outcome = classify_residual(residual)
+    context = statement_context(records, results) if residual else ""
+    kwargs: dict = {}
+    if gate is not None:
+        kwargs["gate"] = gate
+    if context:
+        kwargs["context"] = context
+    outcome = classify_residual(residual, **kwargs)
+    sent_by_index = dict(residual)
     for index, classification in outcome.classifications.items():
+        if classification.committee_id == 1 and sent_by_index.get(index, {}).get("dues_amount") is False:
+            # Dues is a fixed price list. Whatever the model says, an amount
+            # that is not on it is not booked as dues; it goes to a human.
+            classification = replace(
+                classification,
+                confidence=0.0,
+                rule=f"{classification.rule} (not a dues amount this term, so not booked)",
+            )
         if classification.confidence >= threshold:
             results[index] = classification
         else:
@@ -230,27 +254,70 @@ def categorize_records(
                 source="none",
             )
 
-    return CategorizationRun(classifications=results, llm=outcome, proposals=proposals)
+    return CategorizationRun(
+        classifications=results,
+        llm=outcome,
+        proposals=proposals,
+        residual=residual,
+        context=context,
+    )
+
+
+def _incoming(record: dict) -> bool:
+    amount = parse_amount(record.get("amount"))
+    return amount is not None and amount > 0
+
+
+# How many committees, and memos per committee, the context lists. Enough to
+# show what was on sale; small enough to cost nothing next to the rows.
+_CONTEXT_COMMITTEES = 8
+_CONTEXT_MEMOS = 3
+
+
+def statement_context(records: list[dict], results: list[Classification]) -> str:
+    """
+    How the rules booked this upload's incoming payments, one line per committee.
+
+    The model sees each leftover row on its own, so it cannot tell that the
+    same weeks brought dozens of "SEMI" payments at $25 and $40 and merch at
+    $15, $30 and $40. On the Fall 2026 statement it guessed two no-memo $25
+    ticket payments were merch for want of exactly that. Treasury, 2026-11-03:
+    the model "shouldn't be insanely locked into its rules but look at the
+    context" -- this is the context.
+    """
+    groups: dict[int, list[tuple[dict, float]]] = {}
+    for record, result in zip(records, results):
+        amount = parse_amount(record.get("amount"))
+        if amount is None or amount <= 0 or not result.is_assigned:
+            continue
+        groups.setdefault(result.committee_id, []).append((record, float(amount)))
+
+    lines = []
+    ranked = sorted(groups.items(), key=lambda item: -len(item[1]))[:_CONTEXT_COMMITTEES]
+    for committee_id, rows in ranked:
+        amounts = Counter(amount for _, amount in rows)
+        dates = sorted(str(record.get("transaction_date"))[:10] for record, _ in rows)
+        memos: list[str] = []
+        for record, _ in rows:
+            memo = " ".join(extract_memo(record.get("details")).split())[:40]
+            if memo and memo not in memos:
+                memos.append(memo)
+            if len(memos) == _CONTEXT_MEMOS:
+                break
+        priced = ", ".join(f"${amount:,.2f} x{count}" for amount, count in amounts.most_common(4))
+        line = (
+            f"- {committee_id} {committee_name(committee_id)}: {len(rows)} payment(s), "
+            f"{priced}; {dates[0]} to {dates[-1]}"
+        )
+        if memos:
+            line += "; memos like " + " / ".join(f'"{memo}"' for memo in memos)
+        lines.append(line)
+    return "\n".join(lines)
 
 
 def _with_note(record: dict, note: str) -> dict:
     """The record, carrying what upstream recognised, for the model to read."""
     return {**record, "upstream_note": note} if note else record
-
-
-def _card_contested(carded: Classification, others: ScoredResult) -> Classification:
-    """Unassigned: the card and every other signal disagree, and neither may win alone."""
-    card = carded.rule.split(" — ")[0]
-    return Classification(
-        committee_id=None,
-        purpose=None,
-        rule=(
-            f"{card} is {committee_name(carded.committee_id)}'s, but every other "
-            f"signal says {committee_name(others.winner)} -- {others.explain()}"
-        ),
-        confidence=0.0,
-        source="none",
-    )
 
 
 def _overrules_the_card(others: ScoredResult, threshold: float) -> bool:
@@ -281,6 +348,7 @@ def categorize_frame(
     df: pd.DataFrame,
     *,
     dues: DuesSchedule | None = None,
+    gate: ModelGate | None = None,
 ) -> tuple[pd.DataFrame, CategorizationRun]:
     """
     Categorize a parsed statement frame.
@@ -300,7 +368,7 @@ def categorize_frame(
         return out, CategorizationRun()
 
     records = out.to_dict("records")
-    run = categorize_records(records, dues=dues)
+    run = categorize_records(records, dues=dues, gate=gate)
 
     out["budget_category"] = [item.committee_id for item in run.classifications]
     out["purpose"] = [item.purpose for item in run.classifications]

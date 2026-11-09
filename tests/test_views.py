@@ -468,7 +468,7 @@ def test_planner_inputs_accept_edge_values(seeded_db, use_db):
 
 HUB_VIEWS = {
     "DuesHub.py": ("dues_hub", ["Dues", "Roster"]),
-    "TransactionsHub.py": ("transactions_hub", ["Transactions", "Review Queue", "Upload statement"]),
+    "TransactionsHub.py": ("transactions_hub", ["Import", "Transactions", "Review Queue"]),
     "AssistantHub.py": ("assistant_hub", ["Assistant", "Help"]),
     "AlertsHub.py": ("alerts_hub", ["Alerts & Reports", "Data Quality"]),
     "SettingsHub.py": ("settings_hub", ["Officer Access", "Audit Log"]),

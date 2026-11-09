@@ -117,7 +117,7 @@ def test_a_conflicting_memo_reaches_the_model_with_the_reason(monkeypatch):
     from ais_fmd.domain.categorize.llm import LLMOutcome
 
     seen = []
-    monkeypatch.setattr(pipeline, "classify_residual", lambda r: seen.extend(r) or LLMOutcome())
+    monkeypatch.setattr(pipeline, "classify_residual", lambda r, **_: seen.extend(r) or LLMOutcome())
     run = categorize_records([row(zelle_from() + " PAY BACK FOR DINNER", 50.00)],
                              dues=DuesSchedule([FALL_2026]))
     assert not run.classifications[0].is_assigned
@@ -624,7 +624,7 @@ FALL_2026_CARDS = {
     "7101": 5,  # Membership
     "3526": 4,  # President
     "3466": 2,  # Treasury -- the treasurer's own card (US Mobile), 2026-09-23
-    "9570": 6,  # Operations (formerly Corporate Relations) -- VP Operations, 2026-10-01
+    "9570": 8,  # VP Operations' card: Meeting Food by default, 2026-11-03
 }
 
 
@@ -695,11 +695,10 @@ def _ops(merchant: str, purchase: str, amount: float, when: str) -> dict:
     return record
 
 
-def test_the_operations_card_defaults_to_operations():
-    """The $66.67 Chili's was a rewards dinner for her committee, not meeting food."""
-    record = _ops("CHILI'S GAINESVILL", "09/16", -66.67, "2026-09-17")
-    result = categorize_records([record]).classifications[0]
-    assert result.committee_id == 6
+def test_the_operations_card_defaults_to_meeting_food():
+    """Treasury, 2026-11-03: the real $443.68 Moe's order, bought on a Monday."""
+    record = _ops("MOE'S 167", "10/26", -443.68, "2026-10-30")
+    assert categorize_records([record]).classifications[0].committee_id == 8
 
 
 def test_a_meeting_sized_order_on_the_operations_card_is_meeting_food():
@@ -708,12 +707,34 @@ def test_a_meeting_sized_order_on_the_operations_card_is_meeting_food():
     assert categorize_records([record]).classifications[0].committee_id == 8
 
 
-def test_small_meeting_day_food_on_the_operations_card_goes_to_review():
-    """She mostly buys meeting food, so a $40 Tuesday grocery run is not defaulted to Operations."""
-    record = _ops("PUBLIX SUPER MAR", "09/15", -40.00, "2026-09-16")
-    run = categorize_records([record])
-    assert not run.classifications[0].is_assigned
-    assert run.held_for_review[0].winner == 8
+def test_small_food_on_the_operations_card_is_meeting_food():
+    """A $40 grocery run on any day is booked, not held for review."""
+    record = _ops("PUBLIX SUPER MAR", "09/18", -40.00, "2026-09-19")
+    assert categorize_records([record]).classifications[0].committee_id == 8
+
+
+def test_a_social_on_the_operations_card_is_operations():
+    """'with sole exceptions of socials we give them' -- a bar is a social."""
+    record = _ops("SALTY DOG SALOON 352-3756969 FL", "10/09", -84.00, "2026-10-12")
+    result = categorize_records([record]).classifications[0]
+    assert result.committee_id == 6
+    assert "a social" in result.rule
+
+
+def test_monday_is_a_meeting_food_day():
+    """Treasury, 2026-11-03: 'meeting food days should include monday'."""
+    record = row("PURCHASE AUTHORIZED ON 10/26 PIESANOS 3 GAINESVILLE FL", -300.00)
+    record["transaction_date"] = "2026-10-27"
+    assert categorize_records([record]).classifications[0].committee_id == 8
+
+
+@pytest.mark.parametrize("memo, amount", [
+    ("AIS XL CREW NECK", 30.00),
+    ("AIS FOREVER SWEATERS", 60.00),
+    ("AIS SHIRT", 15.00),
+])
+def test_merch_memos_from_the_fall_2026_statement(memo, amount):
+    assert classify_exact(row(f"{zelle_from()} {memo}", amount)).committee_id == 13
 
 
 def test_other_cards_keep_their_default_on_small_meeting_day_food():
@@ -820,3 +841,82 @@ def test_transfers_without_a_card_are_not_a_roster_problem():
         ]
     )
     assert check_card_roster_era(transactions, pd.DataFrame(), pd.DataFrame()) is None
+
+
+# --- 2026-11-03: semi-formal payments are not dues ---------------------------
+
+@pytest.mark.parametrize("memo", ["AIS SEMI ANDREW MUNZ", "SEMI", "YAY SEMI"])
+def test_a_semi_memo_is_a_formal_ticket(memo):
+    """'the tag lines literally say AIS semi' -- the real Fall 2026 memos."""
+    assert classify_exact(row(f"{zelle_from()} {memo}", 25.00)).committee_id == 18
+
+
+def test_semi_inside_a_name_is_not_a_ticket():
+    details = "ZELLE FROM SEMIRA JONES ON 10/26 REF # BACK4MXT4N6F"
+    assert classify_exact(row(details, 25.00)).committee_id != 18
+
+
+def test_the_model_cannot_book_dues_on_a_non_dues_amount(monkeypatch):
+    from ais_fmd.domain.categorize import pipeline
+    from ais_fmd.domain.categorize.llm import LLMOutcome, _render_row
+    from ais_fmd.domain.categorize.predicates import Classification
+
+    seen = []
+
+    def fake(residual, **_):
+        seen.extend(residual)
+        return LLMOutcome(classifications={
+            index: Classification(1, "Dues", "Model: member paying", 0.95, "llm")
+            for index, _ in residual
+        })
+
+    monkeypatch.setattr(pipeline, "classify_residual", fake)
+    ticket = row(zelle_from() + "", 25.00)
+    ticket["transaction_date"] = "2026-10-26"
+    run = categorize_records([ticket], dues=DuesSchedule([FALL_2026]))
+    assert not run.classifications[0].is_assigned, "a $25 payment is never booked as dues"
+    assert "not-a-dues-amount" in _render_row(0, seen[0][1]), "the model is told"
+
+
+def test_the_paypal_balance_moving_to_checking_is_a_transfer():
+    """Treasury, 2026-11-03: 'the 963 PayPal transfer is a transfer, non-income'."""
+    details = "PAYPAL           TRANSFER   261020 1053880175841 ASSOCIATION FOR INFORM"
+    assert classify_exact(row(details, 963.93)).committee_id == 3
+
+
+# --- 2026-11-06: the model sees the rest of the upload ----------------------
+
+def test_the_model_is_told_what_the_rest_of_the_upload_was(monkeypatch):
+    """A no-memo $25 among semi-formal tickets: the context says $25 was a ticket price."""
+    from ais_fmd.domain.categorize import pipeline
+    from ais_fmd.domain.categorize.llm import LLMOutcome, residual_listing_chars
+
+    sent = {}
+
+    def fake(residual, **kwargs):
+        sent.update(kwargs)
+        return LLMOutcome()
+
+    monkeypatch.setattr(pipeline, "classify_residual", fake)
+    tickets = [row(f"{zelle_from(f'Member {n}')} SEMI", 25.00, when="2026-10-26") for n in range(3)]
+    merch = row(f"{zelle_from('Member M')} AIS CREWNECK", 30.00, when="2026-10-22")
+    unknown = row(zelle_from("Diana Perez"), 25.00, when="2026-11-03")
+    run = categorize_records([*tickets, merch, unknown], dues=DuesSchedule([FALL_2026]))
+
+    assert "18 Formal: 3 payment(s), $25.00 x3" in sent["context"]
+    assert "13 Merch: 1 payment(s), $30.00 x1" in sent["context"]
+    assert '"SEMI"' in sent["context"], "sample memos travel with it"
+    assert run.context == sent["context"]
+    # The run is sized with the context, so metering reserves for what is sent.
+    assert residual_listing_chars(run.residual, run.context) > residual_listing_chars(run.residual)
+
+
+def test_no_context_is_sent_when_nothing_is_left_for_the_model(monkeypatch):
+    from ais_fmd.domain.categorize import pipeline
+    from ais_fmd.domain.categorize.llm import LLMOutcome
+
+    calls = []
+    monkeypatch.setattr(pipeline, "classify_residual", lambda r, **kw: calls.append((r, kw)) or LLMOutcome())
+    run = categorize_records([row(f"{zelle_from()} SEMI", 25.00)], dues=DuesSchedule([FALL_2026]))
+    assert run.context == "" and run.classifications[0].committee_id == 18
+    assert calls == [([], {})], "nothing to send, so no context either"

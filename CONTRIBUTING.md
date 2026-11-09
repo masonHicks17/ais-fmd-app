@@ -64,7 +64,7 @@ python3 -m venv .venv
 .venv/bin/python -m pip install -r requirements.txt
 ```
 
-Install **only** `requirements.txt`. Never `pip install supabase` or `openai`
+Install **only** `requirements.txt`. Never `pip install supabase` or `anthropic`
 into this environment — their absence is one of the three things that make the
 sandbox physically unable to touch the real database or spend API money.
 

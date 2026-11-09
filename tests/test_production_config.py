@@ -52,7 +52,7 @@ def secrets(monkeypatch):
     def _install(values: dict):
         monkeypatch.setattr(st, "secrets", FakeSecrets(values), raising=False)
 
-    for name in ("AIS_FMD_ENV", "SUPABASE_URL", "OPENAI_API_KEY"):
+    for name in ("AIS_FMD_ENV", "SUPABASE_URL", "ANTHROPIC_API_KEY", "AIS_FMD_LLM_ENABLED"):
         monkeypatch.delenv(name, raising=False)
     return _install
 

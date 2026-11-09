@@ -822,6 +822,153 @@ class SupabaseBackend(Backend):
             result.error = f"{type(exc).__name__}: {exc}"
         return result
 
+    # --- Model runs and spend reviews -----------------------------------------
+    #
+    # Needs migrations/013_model_runs.sql. Until it is run, `fetch_llm_runs`
+    # raises, `metering.open_run` reports the ledger unreadable, and no model
+    # call is made -- the feature is off, not unmetered.
+
+    def fetch_llm_runs(self) -> pd.DataFrame:
+        data = self._admin.table("llm_runs").select("*").order("run_id", desc=True).execute().data
+        return pd.DataFrame(data or [])
+
+    def start_llm_run(
+        self,
+        *,
+        purpose: str,
+        model: str,
+        actor: str,
+        rows_planned: int,
+        calls_planned: int,
+        reserved_usd: float,
+        stale_before: str,
+        started_at: str,
+    ) -> tuple[int | None, UpdateResult]:
+        result = UpdateResult()
+        try:
+            self._admin.table("llm_runs").update(
+                {"status": "abandoned", "error": "never finished; its reservation still counts"}
+            ).eq("status", "running").lt("started_at", stale_before).execute()
+            response = self._admin.table("llm_runs").insert(
+                {
+                    "purpose": purpose,
+                    "model": model,
+                    "status": "running",
+                    "started_by": actor,
+                    "started_at": started_at,
+                    "rows_planned": int(rows_planned),
+                    "calls_planned": int(calls_planned),
+                    "reserved_usd": float(reserved_usd),
+                }
+            ).execute()
+        except Exception as exc:  # noqa: BLE001
+            # 23505: the one-running-run index refused a second run.
+            if "23505" in str(exc) or "duplicate key" in str(exc).lower():
+                result.error = "Another model run is in progress. Try again in a few minutes."
+            else:
+                result.error = f"{type(exc).__name__}: {exc}"
+            return None, result
+        rows = response.data or []
+        if not rows:
+            result.error = "The run could not be recorded, so no call is made."
+            return None, result
+        result.updated = 1
+        return int(rows[0]["run_id"]), result
+
+    def finish_llm_run(
+        self,
+        *,
+        run_id: int,
+        status: str,
+        calls_made: int,
+        input_tokens: int,
+        output_tokens: int,
+        cache_read_tokens: int,
+        cache_write_tokens: int,
+        cost_usd: float,
+        error: str | None,
+    ) -> UpdateResult:
+        result = UpdateResult()
+        try:
+            self._admin.table("llm_runs").update(
+                {
+                    "status": status,
+                    "finished_at": _now(),
+                    "calls_made": int(calls_made),
+                    "input_tokens": int(input_tokens),
+                    "output_tokens": int(output_tokens),
+                    "cache_read_tokens": int(cache_read_tokens),
+                    "cache_write_tokens": int(cache_write_tokens),
+                    "cost_usd": float(cost_usd),
+                    "error": error,
+                }
+            ).eq("run_id", int(run_id)).execute()
+            result.updated = 1
+        except Exception as exc:  # noqa: BLE001
+            result.error = f"{type(exc).__name__}: {exc}"
+        return result
+
+    def fetch_spend_reviews(self) -> pd.DataFrame:
+        frame = pd.DataFrame(self._select_all("spend_reviews"))
+        if frame.empty:
+            return frame
+        frame["_rank"] = frame["status"].map(lambda status: 0 if status == "open" else 1)
+        return (
+            frame.sort_values(["_rank", "review_id"], ascending=[True, False], kind="stable")
+            .drop(columns="_rank")
+            .reset_index(drop=True)
+        )
+
+    def insert_spend_reviews(self, reviews: list[dict], actor: str) -> UpdateResult:
+        result = UpdateResult()
+        if not reviews:
+            return result
+        try:
+            response = (
+                self._admin.table("spend_reviews")
+                .upsert(
+                    reviews,
+                    on_conflict="transaction_id,booked_committee_id",
+                    ignore_duplicates=True,
+                )
+                .execute()
+            )
+            result.updated = len(response.data or [])
+            result.unchanged = len(reviews) - result.updated
+        except Exception as exc:  # noqa: BLE001
+            result.error = f"{type(exc).__name__}: {exc}"
+        return result
+
+    def resolve_spend_review(
+        self, review_id: int, status: str, actor: str, note: str = ""
+    ) -> UpdateResult:
+        result = UpdateResult()
+        if status not in ("resolved", "dismissed"):
+            result.error = f"Unknown status {status!r}."
+            return result
+        try:
+            response = (
+                self._admin.table("spend_reviews")
+                .update(
+                    {
+                        "status": status,
+                        "resolved_at": _now(),
+                        "resolved_by": actor,
+                        "resolution_note": (note or "").strip() or None,
+                    }
+                )
+                .eq("review_id", int(review_id))
+                .eq("status", "open")
+                .execute()
+            )
+            if response.data:
+                result.updated = 1
+            else:
+                result.unchanged = 1
+        except Exception as exc:  # noqa: BLE001
+            result.error = f"{type(exc).__name__}: {exc}"
+        return result
+
     # --- "This isn't ours" flags ---------------------------------------------
     #
     # Needs migrations/010_transaction_flags.sql, which has NOT been run against

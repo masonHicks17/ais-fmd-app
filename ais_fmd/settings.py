@@ -118,7 +118,7 @@ def assert_external_call_allowed(what: str) -> None:
             f"Blocked in sandbox mode: {what}. "
             f"The sandbox never contacts external services. "
             f"Set {ENV_VAR}=production to enable this (and install the "
-            f"'supabase'/'openai' packages, which the sandbox venv omits)."
+            f"'supabase'/'anthropic' packages, which the sandbox venv omits)."
         )
 
 
@@ -159,19 +159,90 @@ def llm_enabled() -> bool:
     """
     if is_sandbox():
         return _setting("AIS_FMD_ALLOW_LLM_IN_SANDBOX").strip() == "1"
-    return bool(_setting("OPENAI_API_KEY").strip())
+    # The kill switch: AIS_FMD_LLM_ENABLED=0 stops every model call without
+    # removing the key.
+    if _setting("AIS_FMD_LLM_ENABLED", "1").strip() == "0":
+        return False
+    return bool(_setting("ANTHROPIC_API_KEY").strip())
 
 
 def llm_model() -> str:
-    """Small model by default -- residual classification does not need a large one."""
-    return _setting("AIS_FMD_LLM_MODEL", "gpt-4.1-mini")
+    """Small model by default -- both passes are short, structured judgements."""
+    return _setting("AIS_FMD_LLM_MODEL", "claude-haiku-5-5")
 
 
 def llm_batch_size() -> int:
+    return _positive_int("AIS_FMD_LLM_BATCH_SIZE", 40)
+
+
+# --- Model spending limits ---------------------------------------------------
+#
+# Enforced in code by `domain.categorize.metering`, on top of the spend limit
+# set on the Anthropic workspace itself. The workspace limit is the outer wall;
+# these stop a bug long before it gets there.
+#
+# HARD CEILINGS (treasury, 2026-11-03: "make sure nothing goes wrong and burns
+# through it all"). A secret can lower any limit below but never raise it past
+# these. Raising a ceiling is a code change, reviewed by the treasurer like any
+# other.
+HARD_MONTHLY_CAP_USD = 5.00
+HARD_MAX_ROWS_PER_RUN = 1000
+HARD_MAX_CALLS_PER_RUN = 25
+HARD_MAX_RUNS_PER_DAY = 20
+HARD_RUN_DEADLINE_SECONDS = 300
+HARD_MAX_OUTPUT_TOKENS = 16000
+
+def llm_monthly_cap_usd() -> float:
+    """Most the app may spend on model calls in one calendar month (UTC)."""
     try:
-        return max(1, int(_setting("AIS_FMD_LLM_BATCH_SIZE", "40")))
+        cap = float(_setting("AIS_FMD_LLM_MONTHLY_CAP_USD", "2.00"))
     except ValueError:
-        return 40
+        return 2.00
+    # `not cap >= 0` also catches NaN, which every comparison would let through.
+    if not cap >= 0:
+        return 0.0
+    return min(cap, HARD_MONTHLY_CAP_USD)
+
+
+def llm_max_rows_per_run() -> int:
+    # One click checks a whole statement, or a backlog: ~1,000 rows is 25 calls
+    # and, on Haiku, about $0.25 in the worst case.
+    return _positive_int("AIS_FMD_LLM_MAX_ROWS_PER_RUN", 1000, ceiling=HARD_MAX_ROWS_PER_RUN)
+
+
+def llm_max_calls_per_run() -> int:
+    return _positive_int("AIS_FMD_LLM_MAX_CALLS_PER_RUN", 25, ceiling=HARD_MAX_CALLS_PER_RUN)
+
+
+def llm_max_runs_per_day() -> int:
+    return _positive_int("AIS_FMD_LLM_MAX_RUNS_PER_DAY", 20, ceiling=HARD_MAX_RUNS_PER_DAY)
+
+
+def llm_run_deadline_seconds() -> int:
+    """
+    Longest a run may take, start to finish. Past it no further call starts;
+    what was answered is kept and the rest waits for the next run. Haiku answers
+    a batch in seconds, so five minutes means something is wrong.
+    """
+    return _positive_int(
+        "AIS_FMD_LLM_RUN_DEADLINE_SECONDS", 300, ceiling=HARD_RUN_DEADLINE_SECONDS
+    )
+
+
+def llm_max_output_tokens() -> int:
+    """Per call, thinking included. A batch of 40 verdicts with VP messages is ~4,000 tokens
+    of answer; the rest is room for the model to reason first."""
+    return _positive_int(
+        "AIS_FMD_LLM_MAX_OUTPUT_TOKENS", 16000, ceiling=HARD_MAX_OUTPUT_TOKENS
+    )
+
+
+def _positive_int(name: str, default: int, *, ceiling: int | None = None) -> int:
+    try:
+        value = max(1, int(_setting(name, str(default))))
+    except ValueError:
+        value = default
+    return value if ceiling is None else min(value, ceiling)
 
 
 def banner_text() -> str:

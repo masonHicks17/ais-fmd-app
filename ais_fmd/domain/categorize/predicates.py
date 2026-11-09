@@ -189,6 +189,7 @@ FOOD_MERCHANT_KEYWORDS: tuple[str, ...] = (
     "pizza", "grill", "kitchen", "deli", "cafe", "restaurant", "food", "sushi",
     "asian", "mexic", "menchies", "mr and mrs crab", "hana sushi", "las carretas",
     "escapology", "bagel", "bakery", "taco", "wings", "subway", "jimmy john",
+    "moe's",
     "panera", "sam's club", "walmart", "wm supercenter", "costco", "target",
     # Toast, the restaurant point-of-sale: its charges read "TST*<restaurant>",
     # and the restaurant name is often cut off ("TST*MI APA LATIN C" on a $641
@@ -210,7 +211,11 @@ NEVER_BAR_KEYWORDS: tuple[str, ...] = (
     "wm supercenter", "target", "costco", "sam's club",
 )
 
-MEETING_WEEKDAYS = frozenset({"Tuesday", "Wednesday"})
+# Monday added 2026-11-03 (treasury: "meeting food days should include
+# monday"). Food for a Tuesday GBM is often bought the day before -- the $443.68
+# Moe's order on Monday 10/26 -- and 18% of Meeting Food's history is Mondays.
+# The one list: scoring and bulk import it from here.
+MEETING_WEEKDAYS = frozenset({"Monday", "Tuesday", "Wednesday"})
 
 COMMITTEE_PURPOSE: dict[int, str] = {
     1: "Dues",
@@ -255,7 +260,10 @@ COMMITTEE_PURPOSE: dict[int, str] = {
 MEMO_COMMITTEE_KEYWORDS: tuple[tuple[tuple[str, ...], int, str], ...] = (
     (("semi-formal", "semi formal", "semiformal", "formal"), 18, "formal"),
     (
-        ("crewneck", "sweatshirt", "t-shirt", "tshirt", "t shirt", "hoodie", "merch"),
+        (
+            "crewneck", "crew neck", "sweatshirt", "sweater", "t-shirt", "tshirt",
+            "t shirt", "shirt", "hoodie", "merch",
+        ),
         13,
         "merch",
     ),
@@ -411,7 +419,33 @@ def committee_from_memo(
         for keyword in keywords:
             if keyword in text:
                 return committee_id, label, keyword
+    memo = extract_memo(details).lower()
+    for keywords, committee_id, label in MEMO_WORD_COMMITTEE_KEYWORDS:
+        for keyword in keywords:
+            if re.search(rf"\b{re.escape(keyword)}\b", memo):
+                return committee_id, label, keyword
     return None
+
+
+# Keywords too short to trust as substrings, so they are matched as whole words
+# in the memo the payer typed -- never in the payer's name or a merchant.
+# "SEMI" alone was the commonest Fall 2026 ticket memo ("AIS SEMI", "YAY SEMI");
+# as a substring it would also hit names like "Semira" (treasury, 2026-11-03:
+# "the tag lines literally say AIS semi").
+MEMO_WORD_COMMITTEE_KEYWORDS: tuple[tuple[tuple[str, ...], int, str], ...] = (
+    (("semi",), 18, "formal"),
+)
+
+
+def is_dues_amount(record: dict, schedule: "DuesSchedule | None" = None) -> bool:
+    """Whether a positive amount is one of the dues rates in force on its date."""
+    amount = parse_amount(record.get("amount"))
+    if amount is None or amount <= 0:
+        return False
+    if schedule is None:
+        return equals_any(amount, DUES_AMOUNTS)
+    details, account = record.get("details"), record.get("account")
+    return schedule.matches(amount, record_date(record), is_venmo=is_venmo(details, account))
 
 # Real Wells Fargo descriptions pad with runs of spaces:
 #   "PURCHASE                    AUTHORIZED ON   05/17 MERCHANT ..."
@@ -655,6 +689,13 @@ def rule_internal_transfer(record: dict) -> Classification | None:
                 f"Transfer ({marker.upper()} -- the chapter's Venmo account and checking)",
                 confidence=1.0,
             )
+    for marker in PAYPAL_ACH_TRANSFERS:
+        if text.startswith(marker):
+            return _assign(
+                3,
+                f"Transfer ({marker.upper()} -- the chapter's PayPal account and checking)",
+                confidence=1.0,
+            )
     if "zelle" not in text or "venmo" not in text:
         return None
     direction = "in" if amount > 0 else "out"
@@ -666,6 +707,11 @@ def rule_internal_transfer(record: dict) -> Classification | None:
 
 
 VENMO_ACH_TRANSFERS: tuple[str, ...] = ("venmo cashout", "venmo acctverify")
+
+# The PayPal balance moved into checking ("PAYPAL TRANSFER 261020 ... ASSOCIATION
+# FOR INFORM", $963.93 on 10/20/2026). Treasury, 2026-11-03: "a transfer,
+# non-income".
+PAYPAL_ACH_TRANSFERS: tuple[str, ...] = ("paypal transfer",)
 
 # The bank's own charges. Treasury owns them -- the 2023 ledger and the old app
 # both booked bank fees to committee 2.

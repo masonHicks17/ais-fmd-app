@@ -551,6 +551,54 @@ def move_flagged_charge(
     return result
 
 
+# --- Model runs and spend reviews ---------------------------------------------
+# Not cached: the run lock and the monthly spend must be read fresh, and both
+# tables are small.
+
+def load_spend_reviews() -> pd.DataFrame:
+    """Raises if the table does not exist yet (migration 013); callers check."""
+    return backend().fetch_spend_reviews()
+
+
+def model_month_summary() -> tuple[float, float, int]:
+    from ..domain import model_runs
+
+    return model_runs.month_summary(backend())
+
+
+def _run_refusal():
+    from ..domain.model_runs import RunReport
+
+    return RunReport(refusal=_update_refusal().error)
+
+
+@_blocked_when_read_only(_run_refusal)
+def run_spend_review(actor: str):
+    """One metered spend review over the charges not yet reviewed."""
+    from ..domain import model_runs
+
+    report = model_runs.run_spend_review(backend(), actor, load_transactions(), load_terms())
+    if report.started:
+        invalidate()
+    return report
+
+
+@_blocked_when_read_only(lambda: (None, _run_refusal()))
+def run_categorizer(actor: str, records: list[dict], dues=None):
+    """One metered categorizer pass over an upload's new rows."""
+    from ..domain import model_runs
+
+    return model_runs.run_categorizer(backend(), actor, records, dues=dues)
+
+
+@_blocked_when_read_only(_update_refusal)
+def resolve_spend_review(review_id: int, status: str, actor: str, note: str = "") -> UpdateResult:
+    result = backend().resolve_spend_review(review_id, status, actor, note)
+    if result.updated:
+        invalidate()
+    return result
+
+
 # --- Roster and access list ---------------------------------------------------
 # Pages used to call these on `backend()` directly, which skipped the read-only
 # check above. Going through here keeps that check in one place. They do not

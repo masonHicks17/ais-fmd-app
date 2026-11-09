@@ -261,6 +261,67 @@ class Backend(ABC):
     def remove_profile(self, email: str) -> UpdateResult:
         return self._unsupported("VP portal access")
 
+    # --- Model runs and spend reviews -----------------------------------------
+    #
+    # `llm_runs` is the spending ledger every model call is metered against
+    # (domain/categorize/metering.py). `spend_reviews` holds one verdict per
+    # charge per committee it was booked to, so nothing is sent twice. Both need
+    # migrations/013_model_runs.sql. A backend without them cannot meter, so it
+    # refuses to start a run -- the model is never called unmetered.
+
+    def fetch_llm_runs(self) -> pd.DataFrame:
+        raise NotImplementedError(f"{self.name} has no model-run ledger.")
+
+    def start_llm_run(
+        self,
+        *,
+        purpose: str,
+        model: str,
+        actor: str,
+        rows_planned: int,
+        calls_planned: int,
+        reserved_usd: float,
+        stale_before: str,
+        started_at: str,
+    ) -> tuple[int | None, UpdateResult]:
+        """
+        Record a run as running and return its id -- or None when another run
+        is still going. Runs started before `stale_before` and still marked
+        running crashed; they are marked abandoned first (their reservation
+        keeps counting against the month).
+        """
+        return None, self._unsupported("Model run ledger")
+
+    def finish_llm_run(
+        self,
+        *,
+        run_id: int,
+        status: str,
+        calls_made: int,
+        input_tokens: int,
+        output_tokens: int,
+        cache_read_tokens: int,
+        cache_write_tokens: int,
+        cost_usd: float,
+        error: str | None,
+    ) -> UpdateResult:
+        return self._unsupported("Model run ledger")
+
+    def fetch_spend_reviews(self) -> pd.DataFrame:
+        raise NotImplementedError(f"{self.name} has no spend reviews.")
+
+    def insert_spend_reviews(self, reviews: list[dict], actor: str) -> UpdateResult:
+        """
+        Store verdicts. A charge already reviewed while booked to the same
+        committee is skipped (`unchanged`), never overwritten.
+        """
+        return self._unsupported("Spend review")
+
+    def resolve_spend_review(
+        self, review_id: int, status: str, actor: str, note: str = ""
+    ) -> UpdateResult:
+        return self._unsupported("Spend review")
+
     # --- "This isn't ours" flags ---------------------------------------------
     #
     # A VP disputing a charge booked to their committee. A flag is a note to the

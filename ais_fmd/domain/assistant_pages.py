@@ -85,8 +85,8 @@ PAGES: tuple[PageInfo, ...] = (
         ("review queue", "uncategorized", "uncategorised", "needs review", "categorize", "categorise", "miscategorized"),
     ),
     PageInfo(
-        "Upload statement", "Transactions", "Upload statement", "treasurer",
-        "import a Venmo or Wells Fargo statement into the ledger",
+        "Import", "Transactions", "Import", "treasurer",
+        "import a Venmo or Wells Fargo statement into the ledger, with Haiku's suggestions and the spend review",
         ("upload", "upload a bank statement", "upload a statement", "upload statements", "import statement"),
     ),
     PageInfo(

@@ -1,9 +1,6 @@
 """
-Treasury portal: budgets, terms, export.
-
-Statement upload moved to the Transactions hub (views/UploadStatement.py) on
-2026-11-08.
-
+Treasury portal: budgets, terms and exports. (Statement upload moved to
+Transactions -> Import; see views/ImportStatement.py.)
 """
 
 from __future__ import annotations
@@ -28,7 +25,7 @@ shell.page_header(
     "Allocate budgets, manage academic terms, and export the books.",
 )
 
-# Statement upload moved to Transactions → Upload statement (UploadStatement.py).
+# Statement upload moved to Transactions → Import (ImportStatement.py).
 tab_budgets, tab_terms, tab_export = st.tabs(["Budgets", "Terms", "Export"])
 
 

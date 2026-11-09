@@ -63,16 +63,16 @@ def test_get_backend_returns_sqlite_in_sandbox(monkeypatch, tmp_path):
 
 
 def test_llm_disabled_in_sandbox_even_with_a_key(monkeypatch):
-    """A stray OPENAI_API_KEY in the environment must not enable spending."""
+    """A stray ANTHROPIC_API_KEY in the environment must not enable spending."""
     monkeypatch.delenv(settings.ENV_VAR, raising=False)
-    monkeypatch.setenv("OPENAI_API_KEY", "sk-should-not-be-used")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-should-not-be-used")
     monkeypatch.delenv("AIS_FMD_ALLOW_LLM_IN_SANDBOX", raising=False)
     assert settings.llm_enabled() is False
 
 
 def test_llm_classify_residual_makes_no_call_in_sandbox(monkeypatch):
     monkeypatch.delenv(settings.ENV_VAR, raising=False)
-    monkeypatch.setenv("OPENAI_API_KEY", "sk-should-not-be-used")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-should-not-be-used")
     from ais_fmd.domain.categorize.llm import classify_residual
 
     outcome = classify_residual([(0, {"details": "anything", "amount": -10.0})])
@@ -81,7 +81,7 @@ def test_llm_classify_residual_makes_no_call_in_sandbox(monkeypatch):
     assert outcome.skipped_reason is not None
 
 
-def test_openai_and_supabase_are_absent_from_the_sandbox_venv():
+def test_network_clients_are_absent_from_the_sandbox_venv():
     """
     The strongest guarantee: the libraries that could reach out are not installed.
 
@@ -90,7 +90,7 @@ def test_openai_and_supabase_are_absent_from_the_sandbox_venv():
     """
     import importlib.util
 
-    for module in ("openai", "supabase"):
+    for module in ("anthropic", "openai", "supabase"):
         if importlib.util.find_spec(module) is not None:
             pytest.skip(
                 f"{module} is installed in this environment; runtime guards still apply"

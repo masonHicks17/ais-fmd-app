@@ -82,7 +82,7 @@ Roughly 20 minutes if nothing is unusual.
 the full statement period, not a filtered view — the importer rejects duplicates,
 so overlapping ranges are safe and gaps are not.
 
-**2. Import them.** Transactions → Upload statement. The parser validates the file's
+**2. Import them.** Transactions → Import. The parser validates the file's
 shape before reading it and will refuse a file whose layout it does not
 recognise, rather than importing nonsense. Read any warning it shows.
 
@@ -192,7 +192,12 @@ For production, set as environment variables (never commit them):
 
 - `AIS_FMD_ENV=production` — the *only* value that leaves sandbox mode
 - `SUPABASE_URL`, `SUPABASE_SERVICE_KEY` (the secret key; the publishable key is not used)
-- `OPENAI_API_KEY` — optional; only used for transactions no rule can resolve
+- `ANTHROPIC_API_KEY` — optional; the Claude key behind the spend review and the
+  categorizer's model pass. Put it in its own Anthropic workspace with a spend
+  limit and prepaid credit (no auto-reload). Absent = both passes stay off.
+- `AIS_FMD_LLM_ENABLED=0` — the off switch for every model call, key or not
+- `AIS_FMD_LLM_MONTHLY_CAP_USD` — the app's own monthly cap (default `2.00`),
+  counted from the `llm_runs` ledger (migration 013)
 
 If a key is ever exposed, rotate it in the Supabase dashboard first and update
 the environment second.
