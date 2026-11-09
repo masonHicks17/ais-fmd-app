@@ -201,7 +201,7 @@ def vp_panel(
                 }
             )
             shell.dataframe(
-                table, column_config={"Amount": st.column_config.NumberColumn(format="$%.2f")}
+                table, column_config={"Amount": st.column_config.NumberColumn(format="dollar")}
             )
 
 
@@ -249,7 +249,7 @@ def treasurer_panel(transactions: pd.DataFrame, actor: str) -> None:
                         "Your reply": recent["resolution_note"].fillna(""),
                     }
                 ),
-                column_config={"Amount": st.column_config.NumberColumn(format="$%.2f")},
+                column_config={"Amount": st.column_config.NumberColumn(format="dollar")},
             )
 
 

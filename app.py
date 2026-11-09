@@ -106,6 +106,13 @@ pages = [
 ]
 navigation = st.navigation(pages + profile_pages, position="top")
 
+# Light or dark follows the device unless chosen in the profile menu; the
+# helper writes the choice for every page above (ui/appearance.py).
+shell.appearance_sync(
+    pages + profile_pages,
+    auth.person_label(identity) if settings.is_sandbox() and not settings.sandbox_login_enabled() else None,
+)
+
 # --- Profile menu ------------------------------------------------------------
 # Replaced the sidebar on 2026-11-08: who you are, the admin pages, and in the
 # sandbox the role switcher and reseed button.

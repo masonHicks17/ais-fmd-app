@@ -140,7 +140,7 @@ def _model_pass(new_rows: list[dict], schedule) -> None:
         column_order=[column for column in table.columns if column != "natural_key"],
         disabled=True if identity.read_only else [c for c in table.columns if c != "Book as"],
         column_config={
-            "Amount": st.column_config.NumberColumn(format="$%.2f"),
+            "Amount": st.column_config.NumberColumn(format="dollar"),
             "Confidence": st.column_config.ProgressColumn(format="%.0f%%", min_value=0, max_value=100),
             "Details": st.column_config.TextColumn(width="large"),
             "Book as": st.column_config.SelectboxColumn(
@@ -216,6 +216,9 @@ uploaded = st.file_uploader(
     # not re-read as a wall of duplicates.
     key=f"upload_{source_name}_{st.session_state.get(_UPLOADER_ROUND, 0)}",
 )
+if uploaded is None:
+    # Steps 2 and 3 only exist once there is a file, so say so rather than jumping 1 -> 4.
+    st.caption("Steps 2 and 3 — sorting the new rows and importing them — appear once a file is chosen.")
 
 if uploaded is not None:
     file_name = uploaded.name
@@ -273,7 +276,7 @@ if uploaded is not None:
                     pd.DataFrame(dedupe.duplicates)[["transaction_date", "amount", "details"]].rename(
                         columns={"transaction_date": "Date", "amount": "Amount", "details": "Details"}
                     ),
-                    column_config={"Amount": st.column_config.NumberColumn(format="$%.2f")},
+                    column_config={"Amount": st.column_config.NumberColumn(format="dollar")},
                 )
 
         if not dedupe.new:
@@ -300,7 +303,7 @@ if uploaded is not None:
                 hide_index=True,
                 disabled=["Date", "Amount", "Details", "Matched by"],
                 column_config={
-                    "Amount": st.column_config.NumberColumn(format="$%.2f"),
+                    "Amount": st.column_config.NumberColumn(format="dollar"),
                     "Details": st.column_config.TextColumn(width="large"),
                     "Committee": st.column_config.SelectboxColumn(
                         options=committee_dropdown_options(), required=False

@@ -1,18 +1,29 @@
-# Pebble theme. Light canvas, white cards, one orange accent.
+# Pebble theme, in light and dark. Streamlit picks the pair member that matches
+# the device setting, or the choice made under Appearance in the profile menu.
 # Card shapes, motion and the Onest font are applied by ais_fmd/ui/theme.py
-# (APP_CSS) -- these options only cover what Streamlit's theme exposes.
+# (app_css) -- these options only cover what Streamlit's theme exposes, and
+# the colours here mirror theme.LIGHT / theme.DARK so widgets and cards agree.
 
 [theme]
-base = "light"
+showWidgetBorder = false
+baseRadius = "full"
+font = "sans serif"
+
+[theme.light]
 primaryColor = "#D6400E"
 backgroundColor = "#F5F5F3"
 secondaryBackgroundColor = "#F3F3F0"
 textColor = "#111111"
 linkColor = "#D6400E"
 borderColor = "#ECECE9"
-showWidgetBorder = false
-baseRadius = "full"
-font = "sans serif"
+
+[theme.dark]
+primaryColor = "#F0552A"
+backgroundColor = "#161615"
+secondaryBackgroundColor = "#2A2A28"
+textColor = "#F2F2EF"
+linkColor = "#FF9A74"
+borderColor = "#333331"
 
 [server]
 headless = true

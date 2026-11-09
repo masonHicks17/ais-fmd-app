@@ -148,7 +148,7 @@ with rendered[1]:
         shell.dataframe(
             reimb.display_frame(view),
             column_config={
-                "Amount": st.column_config.NumberColumn(format="$%.2f"),
+                "Amount": st.column_config.NumberColumn(format="dollar"),
                 "Submitted": st.column_config.DatetimeColumn(format="MMM D, YYYY"),
             },
         )
@@ -246,7 +246,7 @@ if is_treasurer:
             shell.dataframe(
                 reimb.candidates_frame(candidates),
                 column_config={
-                    "Amount": st.column_config.NumberColumn(format="$%.2f"),
+                    "Amount": st.column_config.NumberColumn(format="dollar"),
                     "Date": st.column_config.DateColumn(format="YYYY-MM-DD"),
                     "Confidence": st.column_config.ProgressColumn(
                         min_value=0.0, max_value=1.0, format="%.0f%%"

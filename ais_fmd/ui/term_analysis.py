@@ -27,6 +27,7 @@ import streamlit as st
 
 from ..config.categories import BUDGETED_COMMITTEE_IDS, committee_name
 from ..domain import pace
+from ..domain.money import format_currency
 from ..domain import sponsorship as sponsorship_domain
 from ..domain.terms import default_semester_index
 from . import charts, shell, theme
@@ -37,6 +38,7 @@ ANCHOR = "term-detail"
 
 def render(bundle, semesters: list[str], *, as_page: bool = False) -> None:
     """The analysis for `bundle`. `as_page` titles it "Dashboard"; otherwise it is a Home section."""
+    t = theme.tokens()
     title_column, scope_column, term_column = st.columns([2.4, 1.2, 1], vertical_alignment="bottom")
 
     with term_column:
@@ -97,6 +99,25 @@ def render(bundle, semesters: list[str], *, as_page: bool = False) -> None:
     def _series(field: str) -> list[float]:
         return [float(history[s][field] or 0.0) for s in recent]
 
+    def _short(semester: str) -> str:
+        # "Fall 2024" -> "F24", "Spring 2026" -> "S26"
+        parts = semester.split()
+        return f"{parts[0][0]}{parts[-1][-2:]}" if len(parts) >= 2 else semester[:4]
+
+    labels = [_short(s) for s in recent]
+    note = f"Same day of the last {len(recent)} terms" if len(recent) > 1 else None
+
+    def _hover(field: str, percent: bool = False) -> list[str]:
+        out = []
+        for s in recent:
+            value = history[s][field]
+            text = "—" if value is None else (f"{value:.1f}%" if percent else format_currency(float(value)))
+            out.append(f"{s}: {text}")
+        return out
+
+    def _bars(field: str, percent: bool = False) -> dict:
+        return dict(bars=_series(field), bar_labels=labels, bar_hover=_hover(field, percent), bar_note=note)
+
 
     def _delta(field: str):
         return None if then is None else now[field] - then[field]
@@ -105,16 +126,16 @@ def render(bundle, semesters: list[str], *, as_page: bool = False) -> None:
     net_column, income_column, expense_column, used_column = st.columns(4, gap="medium")
     with net_column, shell.card("net", order=1, hero=True):
         shell.metric(
-            st, "Net this term", now["net"], delta=_delta("net"), bars=_series("net"), color="#FFFFFF"
+            st, "Net this term", now["net"], delta=_delta("net"), color="#FFFFFF", **_bars("net"),
         )
     # Each KPI sits in a card so its mini bars sit inside it too; a bare metric
     # is its own small card and the bars would fall out below it.
     with income_column, shell.card("income", order=1):
-        shell.metric(st, "Income", now["income"], delta=_delta("income"), bars=_series("income"))
+        shell.metric(st, "Income", now["income"], delta=_delta("income"), **_bars("income"))
     with expense_column, shell.card("expenses", order=1):
         shell.metric(
             st, "Expenses", now["expenses"], delta=_delta("expenses"), inverse=True,  # F11
-            bars=_series("expenses"),
+            **_bars("expenses"),
         )
     used_now = now["used"]
     used_then = then["used"] if then else None
@@ -126,14 +147,10 @@ def render(bundle, semesters: list[str], *, as_page: bool = False) -> None:
             delta=None if used_now is None or used_then is None else f"{used_now - used_then:+.1f} pts",
             inverse=True,
             currency=False,
-            bars=[float(history[s]["used"] or 0.0) for s in recent],
+            **_bars("used", percent=True),
         )
     if prior:
-        shell.say(
-            f"Deltas compare with {prior} at the same day of the term. Bars show "
-            f"{', '.join(recent)} at that day.",
-            caption=True,
-        )
+        shell.say(f"Deltas compare with {prior} at the same day of the term.", caption=True)
 
     # --- Sponsorship goal (M20), condensed ---------------------------------------
     #
@@ -167,7 +184,7 @@ def render(bundle, semesters: list[str], *, as_page: bool = False) -> None:
         committees = pace.committee_pace(transactions, budgets, bundle.terms, clock)
         shell.heading(
             "Committee budgets",
-            shell.legend([("Over", theme.OVER), ("85%+", theme.APPROACHING), ("On track", theme.ON_TRACK)]),
+            shell.legend([("Over", t.OVER), ("85%+", t.APPROACHING), ("On track", t.ON_TRACK)]),
         )
         if committees.empty:
             shell.empty_state(
@@ -184,9 +201,9 @@ def render(bundle, semesters: list[str], *, as_page: bool = False) -> None:
                     table,
                     column_config={
                         "Used": st.column_config.ProgressColumn("Used", format="%.0f%%", min_value=0, max_value=100),
-                        "Budget": st.column_config.NumberColumn(format="$%.2f"),
-                        "Spent": st.column_config.NumberColumn(format="$%.2f"),
-                        "Left": st.column_config.NumberColumn(format="$%.2f"),
+                        "Budget": st.column_config.NumberColumn(format="dollar"),
+                        "Spent": st.column_config.NumberColumn(format="dollar"),
+                        "Left": st.column_config.NumberColumn(format="dollar"),
                         "Runs out": st.column_config.DateColumn(format="MMM D"),
                     },
                 )
@@ -211,6 +228,6 @@ def render(bundle, semesters: list[str], *, as_page: bool = False) -> None:
                 earlier = pace.equivalent_prior(bundle.terms, earlier)
             shell.heading(
                 "Net by week",
-                shell.legend([(label, color) for (label, _), color in zip(lines, [theme.INK] + theme.HISTORY)]),
+                shell.legend([(label, color) for (label, _), color in zip(lines, [t.INK, *t.HISTORY])]),
             )
             shell.chart(charts.net_by_week(lines, clock), key="dash_net", reveal="left")

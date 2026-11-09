@@ -5,8 +5,8 @@ Guards for the Pebble theme.
 sees the app stylesheet, so `.streamlit/config.toml` has to agree with the
 tokens in `ais_fmd/ui/theme.py` or tables and widgets drift from the page.
 
-Pebble replaced the light/dark pair with one light palette, so the old guards
-for the mode switch's localStorage key went with the switch.
+Since 2026-11-09 the config pairs `[theme.light]` with `[theme.dark]`, so both
+are checked against `theme.LIGHT` and `theme.DARK`.
 """
 
 from __future__ import annotations
@@ -27,20 +27,22 @@ else:  # pragma: no cover
 CONFIG = Path(__file__).resolve().parent.parent / ".streamlit" / "config.toml"
 
 
-def test_config_matches_tokens():
-    """Streamlit's own chrome must agree with the app's tokens."""
-    section = tomllib.loads(CONFIG.read_text(encoding="utf-8"))["theme"]
-    assert section["base"] == "light"
+@pytest.mark.parametrize("mode, tokens", [("light", theme.LIGHT), ("dark", theme.DARK)])
+def test_config_matches_tokens(mode, tokens):
+    """Streamlit's own chrome must agree with the app's tokens, in both modes."""
+    config = tomllib.loads(CONFIG.read_text(encoding="utf-8"))["theme"]
+    assert "base" not in config, "a pinned base would stop Streamlit following the device setting"
+    section = config[mode]
     pairs = {
-        "backgroundColor": theme.CANVAS,
-        "secondaryBackgroundColor": theme.SUBTLE,
-        "textColor": theme.INK,
-        "primaryColor": theme.ACCENT,
-        "borderColor": theme.GRID,
+        "backgroundColor": tokens.CANVAS,
+        "secondaryBackgroundColor": tokens.SUBTLE,
+        "textColor": tokens.INK,
+        "primaryColor": tokens.ACCENT,
+        "borderColor": tokens.GRID,
     }
     for key, expected in pairs.items():
         assert section[key].upper() == expected.upper(), (
-            f"[theme] {key} is {section[key]} but theme.py says {expected}."
+            f"[theme.{mode}] {key} is {section[key]} but theme.py says {expected}."
         )
 
 
@@ -72,6 +74,17 @@ def _contrast(foreground: str, background: str) -> float:
         (theme.ACCENT_DIM, theme.CARD),         # hero delta pill
         ("#FFFFFF", theme.ACCENT),              # hero card text
         (theme.ACCENT, theme.CARD),
+        # Dark mode, the same roles.
+        (theme.DARK.INK, theme.DARK.CANVAS),
+        (theme.DARK.INK, theme.DARK.CARD),
+        (theme.DARK.INK_SOFT, theme.DARK.CARD),
+        (theme.DARK.INK_SOFT, theme.DARK.SUBTLE),
+        (theme.DARK.ACCENT_DIM, theme.DARK.ACCENT_TINT),
+        (theme.DARK.ACCENT_DIM, theme.DARK.CARD),
+        (theme.DARK.POSITIVE, theme.DARK.POSITIVE_TINT),
+        (theme.DARK.WARNING, theme.DARK.WARNING_TINT),
+        (theme.DARK.ACCENT, theme.DARK.CARD),
+        (theme.DARK.ON_INK, theme.DARK.INK),     # active nav pill
     ],
 )
 def test_text_clears_aa(foreground: str, background: str):

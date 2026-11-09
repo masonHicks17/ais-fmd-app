@@ -32,9 +32,9 @@ if audit.empty:
 
 metrics = st.columns(4)
 metrics[0].metric("Entries", f"{len(audit):,}")
-metrics[1].metric("Actors", audit["actor"].nunique())
-metrics[2].metric("Edits", int((audit["action"] == "update").sum()))
-metrics[3].metric("Imports", int((audit["action"] == "insert").sum()))
+metrics[1].metric("Actors", f"{audit['actor'].nunique():,}")
+metrics[2].metric("Edits", f"{int((audit['action'] == 'update').sum()):,}")
+metrics[3].metric("Imports", f"{int((audit['action'] == 'insert').sum()):,}")
 
 st.markdown('<hr class="ais-rule" />', unsafe_allow_html=True)
 

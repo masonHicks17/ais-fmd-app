@@ -4,7 +4,12 @@ Events -- the club calendar, and what each event cost (domain/events.py).
 Events come from the AIS Event Schedule workbooks Membership already keeps (or
 an .ics export of the Google Calendar they feed). Spending is tied to an event
 by confirming a suggestion: the app proposes the likeliest event for each
-purchase and says why, and a treasurer ticks the ones that are right.
+purchase and says why, and a treasurer ticks the ones that are right -- or
+picks the right event in the table when the guess is wrong.
+
+Clicking an event (a calendar chip, or a row in the list) opens it in a
+dialog: what, when, who came, and the purchases linked to it, which the
+treasurer can move to another event, unlink, or add to (2026-11-09).
 
 Live Google Calendar sync is shown as a preview only: the sandbox has no
 network, and the calendar ID is read from the workbook's calculation column.
@@ -12,18 +17,20 @@ network, and the calendar ID is read from the workbook's calculation column.
 A VP (`identity.committee_scoped`) gets this page too. VPs work as one team,
 so they see every club event (titles, dates, places, attendance), but money -- what an event cost, purchases that may
 belong to one -- is worked out from their own committee's transactions only,
-and shown only on their own committee's events. They cannot sync, link or
-unlink; the treasurer does that.
+and shown only on their own committee's events. They can add their own
+committee's unlinked purchases to their own committee's events (2026-11-09);
+syncing, moving and unlinking stay with the treasurer.
 """
 
 from __future__ import annotations
 
 import calendar
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from html import escape
 
 import pandas as pd
 import streamlit as st
+from streamlit.errors import StreamlitAPIException
 
 from ais_fmd import auth
 from ais_fmd.config import vp_committees
@@ -31,11 +38,15 @@ from ais_fmd.data import repositories as repo
 from ais_fmd.domain import events as events_domain
 from ais_fmd.domain.money import format_currency
 from ais_fmd.domain.terms import ordered_semesters, term_id_for_semester
-from ais_fmd.ui import calendar_grid, committee_charts, shell, theme
+from ais_fmd.ui import calendar_grid, clickable, committee_charts, shell, theme
 
 auth.require(auth.Role.MEMBER)
 identity = auth.current_user()
 can_edit = identity.can_write
+# A VP may add (never move or unlink) their committee's purchases to their
+# committee's events: the panel returns before any control on another
+# committee's event, and `money` is already only their committee's rows.
+can_add = can_edit or (identity.committee_scoped and not identity.read_only)
 scoped = identity.committee_scoped
 TODAY = date.today()
 
@@ -212,13 +223,178 @@ for column, (name, label, value, currency, caption) in zip(st.columns(4, gap="me
         shell.metric(st, label, value, currency=currency)
         shell.say(caption, caption=True)
 
+# --- One event: a panel opened from the calendar or the list -----------------
+#
+# Replaced the "Event details" section at the foot of the page (2026-11-09):
+# it sat a screen below the calendar behind its own picker. Now a click on an
+# event opens it in a dialog, with its purchases, and the treasurer can move,
+# unlink or link purchases there.
+
+OPEN_KEY = "events_open"   # an event id to open on this run (tests set it directly)
+event_lookup = all_events.set_index("event_id")
+
+
+def _event_name(event_id) -> str:
+    if event_id not in event_lookup.index:
+        return str(event_id)
+    row = event_lookup.loc[event_id]
+    return f"{pd.to_datetime(row['event_date']):%b %d} · {row['title']}"
+
+
+def _purchase_name(transaction_id, extra: str = "") -> str:
+    row = money.loc[money["transactionid"] == transaction_id].iloc[0]
+    amount = format_currency(-float(pd.to_numeric(row["amount"], errors="coerce")))
+    label = events_domain.purchase_label(row["details"])[:40]
+    return f"{pd.to_datetime(row['transaction_date']):%b %d} · {label} · {amount}{extra}"
+
+
+def _events_near(day: date, *, exclude: int | None = None) -> list[int]:
+    """Events this identity may book money to, within a month of `day`, closest first."""
+    days = pd.to_datetime(all_events["event_date"]).dt.date
+    near = all_events[(days >= day - timedelta(days=30)) & (days <= day + timedelta(days=30))
+                      & all_events["committee_id"].map(is_mine)]
+    near = near.assign(_gap=[abs((d - day).days) for d in days[near.index]]).sort_values(["_gap", "event_date"])
+    return [int(e) for e in near["event_id"] if int(e) != exclude]
+
+
+def _money_near(day: date) -> pd.DataFrame:
+    """Spending posted from 10 days before an event to 30 after (cards post late)."""
+    posted = pd.to_datetime(money["transaction_date"], errors="coerce").dt.date
+    amount = pd.to_numeric(money["amount"], errors="coerce")
+    window = money[(posted >= day - timedelta(days=10)) & (posted <= day + timedelta(days=30)) & (amount < 0)].copy()
+    window["_gap"] = [abs((d - day).days) for d in posted[window.index]]
+    return window.sort_values(["_gap", "transactionid"])
+
+
+def _changed(message: str) -> None:
+    """Redraw the open panel with the change; the page behind refreshes when it closes."""
+    st.toast(message)
+    try:
+        st.rerun(scope="fragment")
+    except StreamlitAPIException:  # not inside a dialog rerun (a full run, or a test)
+        st.rerun()
+
+
+def _event_panel(event_id: int) -> None:
+    if event_id not in event_lookup.index:
+        shell.say("This event is no longer on the calendar.", caption=True)
+        return
+    event = event_lookup.loc[event_id]
+    day = pd.to_datetime(event["event_date"]).date()
+    committee_id = event["committee_id"]
+    owner = committee_names.get(int(committee_id), "") if pd.notna(committee_id) else ""
+
+    # The schedule sheets sometimes hold words ("Never", "TBD") in the time
+    # columns; only show what reads as a time.
+    start, end = (str(event[k]) if pd.notna(event[k]) and any(ch.isdigit() for ch in str(event[k])) else None
+                  for k in ("start_time", "end_time"))
+    when = f"{day:%A, %b %d}" + (f" · {start}" if start else "") + (f"–{end}" if start and end else "")
+    facts = [when]
+    if pd.notna(event["location"]):
+        facts.append(str(event["location"]))
+    if pd.notna(event["attendance"]):
+        facts.append(f"{int(event['attendance'])} came")
+    shell.html(
+        f'<div class="ais-event-facts">{shell.pill(escape(owner or "No committee"), "muted")}'
+        f'<span>{" · ".join(escape(str(f)) for f in facts)}</span></div>'
+    )
+    more = [f"{label}: {event[key]}" for label, key in (("Owner", "owner"), ("Audience", "audience"), ("Status", "status"))
+            if pd.notna(event[key])]
+    if pd.notna(event["attendance"]) and pd.notna(event["attendance_source"]):
+        more.append(f"Attendance from the {event['attendance_source']}")
+    if more:
+        shell.say(escape(" · ".join(str(m) for m in more)), caption=True)
+    if pd.notna(event["description"]):
+        shell.say(escape(str(event["description"])), caption=True)
+
+    if not is_mine(committee_id):
+        shell.heading("Spending")
+        shell.say(f"What this event cost is visible to the {escape(owner or 'committee')} VP and the treasurer.", caption=True)
+        return
+
+    links_now = repo.load_event_links()
+    linked_ids = links_now.loc[links_now["event_id"] == event_id, "transaction_id"].astype(int).tolist() if not links_now.empty else []
+    purchases = money[money["transactionid"].isin(linked_ids)].sort_values("transaction_date")
+    total = float(-pd.to_numeric(purchases["amount"], errors="coerce").sum()) if not purchases.empty else 0.0
+    per_person = (f" · {format_currency(total / event['attendance'])} per person"
+                  if total and pd.notna(event["attendance"]) and event["attendance"] else "")
+    shell.heading("Spending", shell.pill(f"{format_currency(total)}{per_person}", "muted"))
+    if purchases.empty:
+        shell.say("No purchases linked yet.", caption=True)
+    for row in purchases.itertuples():
+        tid = int(row.transactionid)
+        widths = [1, 3, 1.2, 3, 0.7] if can_edit else [1, 3, 1.2]
+        cells = st.columns(widths, vertical_alignment="center")
+        cells[0].caption(f"{pd.to_datetime(row.transaction_date):%b %d}")
+        cells[1].write(events_domain.purchase_label(row.details)[:40])
+        cells[2].write(format_currency(-float(row.amount)))
+        if can_edit:
+            target = cells[3].selectbox(
+                "Move to", _events_near(pd.to_datetime(row.transaction_date).date(), exclude=event_id),
+                index=None, placeholder="Move to another event…", format_func=_event_name,
+                key=f"events_move_{event_id}_{tid}", label_visibility="collapsed",
+            )
+            if target is not None:
+                result = repo.link_transactions_to_events([(tid, int(target))], identity.email)
+                if result.error:
+                    shell.notify("warning", result.error)
+                else:
+                    _changed(f"Moved to {_event_name(int(target))}.")
+            if cells[4].button("", icon=":material/link_off:", key=f"events_unlink_{event_id}_{tid}",
+                               help="Unlink this purchase from the event"):
+                repo.unlink_transaction_from_event(tid, identity.email)
+                _changed("Unlinked.")
+
+    nearby = _money_near(day)
+    here = [s for s in events_domain.suggest_links(nearby, all_events, links_now, committees) if s.event_id == event_id]
+    if here:
+        shell.heading("Suggested for this event", shell.pill(str(len(here)), "muted"))
+        for s in sorted(here, key=lambda s: -s.score):
+            cells = st.columns([1, 3, 1.2, 1.4, 1.1] if can_add else [1, 3, 1.2, 1.4], vertical_alignment="center")
+            row = money.loc[money["transactionid"] == s.transaction_id].iloc[0]
+            cells[0].caption(f"{pd.to_datetime(row['transaction_date']):%b %d}")
+            cells[1].write(events_domain.purchase_label(row["details"])[:40])
+            cells[2].write(format_currency(-float(row["amount"])))
+            cells[3].caption(s.confidence, help=s.reason)
+            if can_add and cells[4].button("Link", key=f"events_suggest_{event_id}_{s.transaction_id}"):
+                repo.link_transactions_to_events([(s.transaction_id, event_id)], identity.email)
+                _changed("Linked.")
+        if not can_add:
+            shell.say("The treasurer confirms these.", caption=True)
+
+    if can_add:
+        elsewhere = dict(zip(links_now["transaction_id"].astype(int), links_now["event_id"].astype(int))) if not links_now.empty else {}
+        # A VP adds only purchases on no event yet: taking one off another
+        # event would undo a link someone confirmed, which is the treasurer's call.
+        candidates = [int(t) for t in nearby["transactionid"]
+                      if int(t) not in linked_ids and (can_edit or int(t) not in elsewhere)]
+        first, last = day - timedelta(days=10), day + timedelta(days=30)
+        choice = st.selectbox(
+            "Link another purchase", candidates, index=None,
+            placeholder=f"Search purchases from {first:%b %d} to {last:%b %d}",
+            format_func=lambda t: _purchase_name(t, f" (now on {_event_name(elsewhere[t])})" if t in elsewhere else ""),
+            key=f"events_add_{event_id}",
+            help=("Spending posted from 10 days before the event to 30 after. A purchase already on "
+                  "another event moves here.") if can_edit else
+                 ("Your committee's spending from 10 days before the event to 30 after that isn't on an "
+                  "event yet. To move or unlink a purchase, ask the treasurer."),
+        )
+        if st.button("Link purchase", disabled=choice is None, key=f"events_add_go_{event_id}"):
+            repo.link_transactions_to_events([(int(choice), event_id)], identity.email)
+            _changed("Linked.")
+
+
+def _open(event_id: int) -> None:
+    title = str(event_lookup.loc[event_id, "title"]) if event_id in event_lookup.index else "Event"
+    st.dialog(title, width="large", on_dismiss="rerun")(_event_panel)(event_id)
+
+
+to_open: int | None = st.session_state.pop(OPEN_KEY, None)
+
 # --- Month grid ---------------------------------------------------------------
 
-COLORS = committee_charts.COMMITTEE_COLORS
-
-
 def _color(committee_id) -> str:
-    return COLORS.get(int(committee_id), theme.INK_MUTE) if pd.notna(committee_id) else theme.INK_MUTE
+    return committee_charts.committee_color(int(committee_id) if pd.notna(committee_id) else None)
 
 
 def _month_grid(year: int, month: int, rows: pd.DataFrame) -> str:
@@ -234,7 +410,7 @@ def _month_grid(year: int, month: int, rows: pd.DataFrame) -> str:
         owner = committee_names.get(int(event.committee_id), "") if pd.notna(event.committee_id) else ""
         chips.setdefault(event.day, []).append(calendar_grid.Chip(
             title=str(event.title), meta_html=" · ".join(meta), color=_color(event.committee_id),
-            tip=f"{event.title} · {event.location or ''} · {owner}",
+            tip=f"{event.title} · {event.location or ''} · {owner}", pick=str(int(event.event_id)),
         ))
     return calendar_grid.month_grid(year, month, chips, today=TODAY)
 
@@ -244,38 +420,60 @@ if view == "Month":
     if months:
         labels = [f"{calendar.month_abbr[m]} {y}" for y, m in months]
         default = next((label for (y, m), label in zip(months, labels) if (y, m) == (TODAY.year, TODAY.month)), labels[-1])
-        month_label = st.segmented_control("Month", labels, default=default, key=f"events_month_{term_id}",
-                                           label_visibility="collapsed") or default
+        month_column, legend_column = st.columns([3, 2], vertical_alignment="center")
+        with month_column:
+            month_label = st.segmented_control("Month", labels, default=default, key=f"events_month_{term_id}",
+                                               label_visibility="collapsed") or default
         year, month = months[labels.index(month_label)]
-        legend = shell.legend([(committee_names.get(c, ""), color) for c, color in COLORS.items()
-                               if c in set(term_events["committee_id"].dropna().astype(int))])
-        shell.html(f'<div style="display:flex;justify-content:flex-end">{legend}</div>')
-        shell.html(_month_grid(year, month, term_events))
+        with legend_column:
+            legend = shell.legend([(committee_names.get(c, ""), color) for c, color in committee_charts.committee_colors().items()
+                                   if c in set(term_events["committee_id"].dropna().astype(int))])
+            shell.html(f'<div style="display:flex;justify-content:flex-end">{legend}</div>')
+        clicked = clickable.html(_month_grid(year, month, term_events), key=f"events_cal_{term_id}_{year}_{month}")
+        if clicked:
+            to_open = int(clicked)
+        shell.say("Click an event to see its details and purchases.", caption=True)
 else:
-    table = term_events.sort_values("day")
+    ordered = term_events.sort_values("day").reset_index(drop=True)
     table = pd.DataFrame({
-        "Date": table["day"],
-        "Event": table["title"],
-        "Committee": table["committee_id"].map(lambda c: committee_names.get(int(c), "") if pd.notna(c) else ""),
-        "Location": table["location"],
-        "Attendance": table["attendance"],
-        "Spent": table["Spent"].where(table["Spent"] > 0),
-        "Per person": (table["Spent"] / table["attendance"]).where((table["Spent"] > 0) & table["attendance"].notna()),
-        "Status": table["status"],
+        "Date": ordered["day"],
+        "Event": ordered["title"],
+        "Committee": ordered["committee_id"].map(lambda c: committee_names.get(int(c), "") if pd.notna(c) else ""),
+        "Location": ordered["location"].fillna(""),
+        "Attendance": pd.to_numeric(ordered["attendance"], errors="coerce"),
+        "Spent": ordered["Spent"].where(ordered["Spent"] > 0),
+        "Per person": (ordered["Spent"] / pd.to_numeric(ordered["attendance"], errors="coerce"))
+                      .where((ordered["Spent"] > 0) & ordered["attendance"].notna()),
+        "Status": ordered["status"].fillna(""),
     })
-    shell.dataframe(
+    selection = st.dataframe(
         table,
+        hide_index=True,
+        width="stretch",
         column_config={
             "Date": st.column_config.DateColumn(format="ddd MMM D"),
             "Attendance": st.column_config.NumberColumn(format="%d"),
-            "Spent": st.column_config.NumberColumn(format="$%.2f"),
-            "Per person": st.column_config.NumberColumn(format="$%.2f"),
+            "Spent": st.column_config.NumberColumn(format="dollar"),
+            "Per person": st.column_config.NumberColumn(format="dollar"),
         },
         height=460,
+        on_select="rerun",
+        selection_mode="single-row",
+        key=f"events_list_{term_id}",
     )
+    rows = list(getattr(getattr(selection, "selection", None), "rows", []) or [])
+    picked_row = int(ordered.at[rows[0], "event_id"]) if rows else None
+    # Open on a new selection only, so closing the dialog (which reruns the
+    # page with the row still selected) doesn't open it again.
+    seen_key = f"_events_list_seen_{term_id}"
+    if picked_row != st.session_state.get(seen_key):
+        st.session_state[seen_key] = picked_row
+        if picked_row is not None:
+            to_open = picked_row
     shell.say(
-        "Attendance comes from the schedule sheet or, for GBMs, the member database's check-in "
-        "columns. Spent counts only purchases linked to the event.",
+        "Click a row to see the event's details and purchases. Attendance comes from the schedule "
+        "sheet or, for GBMs, the member database's check-in columns. Spent counts only purchases "
+        "linked to the event.",
         caption=True,
     )
 
@@ -289,9 +487,11 @@ shell.heading(
 shell.say(
     "Matched on the date, the merchant appearing in the event's location or name, the kind of "
     "merchant, and the committee it's already categorized to. "
-    + ("Only your committee's purchases are listed. The treasurer confirms each link; if one looks wrong, tell them."
+    + ("Only your committee's purchases are listed. Tick Link to add one to its event, or pick the right "
+       "event in the Event column. To move or unlink a purchase later, ask the treasurer."
        if scoped else
-       "Nothing is linked until you tick it. Later the Assistant (Haiku) can explain or second-guess these."),
+       "Tick Link to accept a match. If the event is wrong, pick the right one in the Event column; "
+       "changing it counts as accepting. To move or unlink a purchase later, open its event above."),
     caption=True,
 )
 
@@ -303,14 +503,13 @@ if not shown:
     shell.empty_state("Nothing to match", "No unlinked purchases near this semester's events at that confidence.")
 else:
     transactions = money.set_index("transactionid")
-    event_lookup = all_events.set_index("event_id")
     frame = pd.DataFrame([
         {
             "Link": s.confidence == events_domain.HIGH,
             "Date": pd.to_datetime(transactions.at[s.transaction_id, "transaction_date"]).date(),
             "Purchase": events_domain.purchase_label(transactions.at[s.transaction_id, "details"])[:48],
             "Amount": -float(transactions.at[s.transaction_id, "amount"]),
-            "Event": f"{event_lookup.at[s.event_id, 'title']} ({pd.to_datetime(event_lookup.at[s.event_id, 'event_date']):%b %d})",
+            "Event": s.event_id,
             "Confidence": s.confidence,
             "Why": s.reason,
             "_transaction": s.transaction_id,
@@ -318,25 +517,32 @@ else:
         }
         for s in sorted(shown, key=lambda s: (-s.score, s.transaction_id))
     ])
+    # Any of this identity's events in the term can be picked instead of the guess.
+    choices = [int(e) for e in term_events.loc[term_events["committee_id"].map(is_mine)].sort_values("day")["event_id"]]
     edited = st.data_editor(
         frame,
         hide_index=True,
         width="stretch",
-        disabled=[c for c in frame.columns if c != "Link"] if can_edit else True,
-        column_order=(["Link"] if can_edit else []) + ["Date", "Purchase", "Amount", "Event", "Confidence", "Why"],
+        disabled=[c for c in frame.columns if c not in ("Link", "Event")] if can_add else True,
+        column_order=(["Link"] if can_add else []) + ["Date", "Purchase", "Amount", "Event", "Confidence", "Why"],
         column_config={
             "Link": st.column_config.CheckboxColumn(width="small"),
             "Date": st.column_config.DateColumn(format="MMM D"),
-            "Amount": st.column_config.NumberColumn(format="$%.2f"),
+            "Amount": st.column_config.NumberColumn(format="dollar"),
+            "Event": st.column_config.SelectboxColumn(
+                options=choices, format_func=_event_name, required=True, width="medium",
+                help="The likeliest event. Pick another if it's wrong." if can_add else None,
+            ),
             "Why": st.column_config.TextColumn(width="large"),
         },
         key=f"events_suggestions_{term_id}",
     )
-    if can_edit:
-        chosen = edited[edited["Link"]]
+    if can_add:
+        moved = edited["Event"].astype(int) != edited["_event"].astype(int)
+        chosen = edited[edited["Link"] | moved]
         if st.button(f"Link {len(chosen)} purchase(s)", type="primary", disabled=chosen.empty, key="events_link"):
             result = repo.link_transactions_to_events(
-                list(zip(chosen["_transaction"].astype(int), chosen["_event"].astype(int))), identity.email
+                list(zip(chosen["_transaction"].astype(int), chosen["Event"].astype(int))), identity.email
             )
             if result.error:
                 shell.notify("error", result.error)
@@ -344,65 +550,5 @@ else:
                 st.toast(f"Linked {result.updated} purchase(s).")
                 st.rerun()
 
-# --- One event ----------------------------------------------------------------
-
-st.markdown('<hr class="ais-rule" />', unsafe_allow_html=True)
-st.markdown("#### Event details")
-options = term_events.sort_values("day")
-labels = {int(r.event_id): f"{r.day:%b %d} · {r.title}" for r in options.itertuples()}
-default_event = next((eid for eid, r in zip(options["event_id"], options.itertuples()) if r.Spent > 0), None)
-picked = st.selectbox(
-    "Event", list(labels), format_func=labels.get, key=f"events_pick_{term_id}",
-    index=list(labels).index(default_event) if default_event in labels else 0,
-)
-event = options[options["event_id"] == picked].iloc[0]
-info_column, spend_column = st.columns([2, 3], gap="medium")
-with info_column, shell.card("events-detail", order=3):
-    shell.heading(escape(str(event["title"])), shell.pill(committee_names.get(int(event["committee_id"]), "—") if pd.notna(event["committee_id"]) else "—", "muted"))
-    when = f"{event['day']:%A, %b %d}" + (f" · {event['start_time']}" if pd.notna(event["start_time"]) else "") + (
-        f"–{event['end_time']}" if pd.notna(event["end_time"]) else "")
-    lines = [when]
-    for label, key in (("Where", "location"), ("Owner", "owner"), ("Audience", "audience"), ("Status", "status")):
-        if pd.notna(event[key]):
-            lines.append(f"{label}: {event[key]}")
-    if pd.notna(event["attendance"]):
-        lines.append(f"Attendance: {int(event['attendance'])} ({event['attendance_source']})")
-    shell.say("  \n".join(escape(str(line)) for line in lines), caption=True)
-    if pd.notna(event["description"]):
-        shell.say(escape(str(event["description"])), caption=True)
-with spend_column, shell.card("events-spend", order=4):
-    if not is_mine(event["committee_id"]):
-        shell.heading("Spending")
-        owner = committee_names.get(int(event["committee_id"]), "that committee") if pd.notna(event["committee_id"]) else "that committee"
-        shell.say(f"What this event cost is visible to the {escape(owner)} VP and the treasurer.", caption=True)
-        st.stop()
-    linked_ids = links.loc[links["event_id"] == picked, "transaction_id"].astype(int).tolist() if not links.empty else []
-    purchases = money[money["transactionid"].isin(linked_ids)]
-    total = -pd.to_numeric(purchases["amount"], errors="coerce").sum() if not purchases.empty else 0.0
-    per_person = (
-        f" · {format_currency(total / event['attendance'])} per person"
-        if total and pd.notna(event["attendance"]) and event["attendance"] else ""
-    )
-    shell.heading("Spending", shell.pill(f"{format_currency(total)}{per_person}", "muted"))
-    if purchases.empty:
-        shell.say("No purchases linked yet.", caption=True)
-    else:
-        shell.dataframe(
-            pd.DataFrame({
-                "Date": pd.to_datetime(purchases["transaction_date"]).dt.date,
-                "Purchase": purchases["details"].map(events_domain.purchase_label).str[:48],
-                "Amount": -pd.to_numeric(purchases["amount"], errors="coerce"),
-            }),
-            column_config={"Amount": st.column_config.NumberColumn(format="$%.2f"),
-                           "Date": st.column_config.DateColumn(format="MMM D")},
-        )
-        if can_edit:
-            unlink = st.selectbox(
-                "Unlink a purchase", [None, *purchases["transactionid"].astype(int)],
-                format_func=lambda t: "—" if t is None else str(
-                    purchases.loc[purchases["transactionid"] == t, "details"].iloc[0])[:48],
-                key=f"events_unlink_{picked}",
-            )
-            if unlink is not None and st.button("Unlink", key="events_unlink_go"):
-                repo.unlink_transaction_from_event(int(unlink), identity.email)
-                st.rerun()
+if to_open is not None:
+    _open(int(to_open))

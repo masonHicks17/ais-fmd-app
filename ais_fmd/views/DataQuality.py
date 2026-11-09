@@ -76,7 +76,7 @@ if report.empty:
 else:
     shell.dataframe(
         report,
-        column_config={"Total amount": st.column_config.NumberColumn(format="$%.2f")},
+        column_config={"Total amount": st.column_config.NumberColumn(format="dollar")},
     )
     st.caption(
         "To change a mapping, edit `PURPOSE_TO_COMMITTEE` in "

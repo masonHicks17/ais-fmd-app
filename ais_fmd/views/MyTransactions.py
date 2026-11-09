@@ -151,7 +151,7 @@ if flags is not None:
 
 shell.dataframe(
     table,
-    column_config={"Amount": st.column_config.NumberColumn(format="$%.2f")},
+    column_config={"Amount": st.column_config.NumberColumn(format="dollar")},
     height=520,
 )
 

@@ -67,14 +67,15 @@ def plan_donut(slices: pd.DataFrame) -> go.Figure:
     order, with the category and its share written on the slice and the total
     in the middle. A 2px surface gap between slices keeps neighbours apart.
     """
+    t = theme.tokens()
     if slices is None or slices.empty:
         return charts.empty_figure("Nothing planned yet.")
     p = theme.active()
     # The team palette's neutrals only, dark and light alternating so neighbours
     # stand apart. Its oranges are left out on purpose: next to this ring, orange
     # means "over plan", and a status colour is never reused for a category.
-    palette = [c for c in (p.categorical or theme.CATEGORICAL) if c.upper() not in {
-        p.over.upper(), p.accent.upper(), theme.ACCENT_DIM.upper(), "#F08A5D", "#FFB59A",
+    palette = [c for c in (p.categorical or t.CATEGORICAL) if c.upper() not in {
+        p.over.upper(), p.accent.upper(), t.ACCENT_DIM.upper(), "#F08A5D", "#FFB59A",
     }]
     palette = sorted(palette, key=lambda c: int(c.lstrip("#")[:2], 16))
     palette = [palette[i // 2] if i % 2 == 0 else palette[-(i // 2) - 1] for i in range(len(palette))]
@@ -103,6 +104,7 @@ def projection_bar(figures: dict, color: str) -> str:
     When the plan goes past the budget the bar is scaled to the plan and a mark
     shows where the budget ends.
     """
+    t = theme.tokens()
     from html import escape
 
     budget = float(figures["budget"] or 0)
@@ -114,7 +116,7 @@ def projection_bar(figures: dict, color: str) -> str:
 
     room = max(budget - spent - ahead, 0.0)
     mark = (f'<div style="position:absolute;top:-4px;bottom:-4px;left:{width(budget)};width:2px;'
-            f'background:{theme.OVER}"></div>') if spent + ahead > budget > 0 else ""
+            f'background:{t.OVER}"></div>') if spent + ahead > budget > 0 else ""
 
     def key(swatch: str, label: str, amount: float) -> str:
         return (f'<span style="display:inline-flex;align-items:center;gap:6px;margin-right:18px">'
@@ -125,22 +127,23 @@ def projection_bar(figures: dict, color: str) -> str:
     return (
         '<div style="margin:.4rem 0 1rem">'
         f'<div style="position:relative;display:flex;height:26px;border-radius:8px;overflow:visible;'
-        f'background:{theme.CARD};box-shadow:inset 0 0 0 1px {theme.INK_MUTE}55">'
+        f'background:{t.CARD};box-shadow:inset 0 0 0 1px {t.INK_MUTE}55">'
         f'<div title="Spent (reported by the bank)" style="width:{width(spent)};background:{color};'
         f'border-radius:8px 0 0 8px"></div>'
         f'<div title="Planned events still to come (estimated)" style="width:{width(ahead)};background:{stripes}"></div>'
         f'{mark}</div>'
-        f'<div style="margin-top:.5rem;font-size:.85rem;color:{theme.INK_SOFT}">'
+        f'<div style="margin-top:.5rem;font-size:.85rem;color:{t.INK_SOFT}">'
         + key(f"background:{color}", "Spent (reported)", spent)
         + key(f"background:{stripes}", "Planned events ahead (estimate)", ahead)
-        + key(f"background:{theme.SUBTLE};border:1px solid {theme.INK_MUTE}", "Room for extras", room)
+        + key(f"background:{t.SUBTLE};border:1px solid {t.INK_MUTE}", "Room for extras", room)
         + "</div></div>"
     )
 
 
 def _tint(hex_color: str) -> str:
+    t = theme.tokens()
     value = hex_color.lstrip("#")
     if len(value) != 6:
-        return theme.SUBTLE
+        return t.SUBTLE
     r, g, b = (int(value[i:i + 2], 16) for i in (0, 2, 4))
     return f"rgba({r},{g},{b},0.35)"

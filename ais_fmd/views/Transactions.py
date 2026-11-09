@@ -31,6 +31,8 @@ from ais_fmd.domain.details import tidy
 from ais_fmd.domain.terms import attach_semester, ordered_semesters
 from ais_fmd.ui import shell
 
+BLANK = "—"  # an empty committee or purpose, as the table shows it
+
 identity = auth.require(auth.Role.MEMBER)
 can_edit = identity.can_write
 
@@ -60,7 +62,7 @@ with filter_columns[0]:
     )
 with filter_columns[1]:
     status_choice = st.selectbox(
-        "Categorisation", ["All", "Uncategorized", "Categorized"], key="txn_status"
+        "Categorisation", ["All", "Needs a category", "Categorised"], key="txn_status"
     )
 with filter_columns[2]:
     type_choice = st.selectbox("Type", ["All", "Income", "Expense"], key="txn_type")
@@ -70,9 +72,9 @@ with filter_columns[3]:
 view = tagged.copy()
 if semester_choice != "All":
     view = view[view["Semester"] == semester_choice]
-if status_choice == "Uncategorized":
+if status_choice == "Needs a category":
     view = view[view["budget_category"].isna() | view["purpose"].isna()]
-elif status_choice == "Categorized":
+elif status_choice == "Categorised":
     view = view[view["budget_category"].notna() & view["purpose"].notna()]
 if type_choice == "Income":
     view = view[view["amount"] > 0]
@@ -153,8 +155,10 @@ editable = pd.DataFrame(
         "Date": pd.to_datetime(view["transaction_date"]).dt.date,
         "Amount": view["amount"],
         "Details": view["details"] if show_raw else view["details"].map(tidy),
-        "Committee": [committee_label(value) for value in view["budget_category"]],
-        "Purpose": view["purpose"].fillna(""),
+        # A blank shows as "None" in the editor's dropdown cells; a dash reads as
+        # "nothing here" and parses back to None (clean_text, parse_committee_label).
+        "Committee": [committee_label(value) or BLANK for value in view["budget_category"]],
+        "Purpose": view["purpose"].fillna("").replace("", BLANK),
         "Event": [cell[0] for cell in event_cells],
         "Match": [cell[1] for cell in event_cells],
         "Confirm": False,
@@ -162,6 +166,7 @@ editable = pd.DataFrame(
 )
 if not can_edit:
     editable = editable.drop(columns="Confirm")
+
 
 def clean_text(value: object) -> str | None:
     """
@@ -173,7 +178,7 @@ def clean_text(value: object) -> str | None:
     if value is None or (isinstance(value, float) and pd.isna(value)):
         return None
     text = str(value).strip()
-    return text or None
+    return None if text in ("", BLANK) else text
 
 
 original_by_id = {
@@ -197,13 +202,13 @@ edited = st.data_editor(
     column_config={
         "transactionid": None,  # carried for identity, not shown
         "Date": st.column_config.DateColumn("Date", format="YYYY-MM-DD"),
-        "Amount": st.column_config.NumberColumn("Amount", format="$%.2f"),
+        "Amount": st.column_config.NumberColumn("Amount", format="dollar"),
         "Details": st.column_config.TextColumn("Details", width="medium"),
         "Committee": st.column_config.SelectboxColumn(
-            "Committee", options=committee_dropdown_options(), required=False
+            "Committee", options=[BLANK] + committee_dropdown_options()[1:], required=False
         ),
         "Purpose": st.column_config.SelectboxColumn(
-            "Purpose", options=purpose_dropdown_options(), required=False
+            "Purpose", options=[BLANK] + purpose_dropdown_options()[1:], required=False
         ),
         "Event": st.column_config.TextColumn(
             "Event", width="medium", help="The event this purchase paid for. Unconfirmed until Match says Confirmed."

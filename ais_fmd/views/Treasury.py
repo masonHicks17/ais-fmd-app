@@ -72,6 +72,7 @@ with tab_budgets:
                         step=50.0,
                         format="%.2f",
                         key=f"budget_{selected_term}_{committee_id}",
+                        disabled=identity.read_only,
                     )
             saved = st.form_submit_button("Save budgets", type="primary", disabled=identity.read_only)
 
@@ -156,11 +157,13 @@ with tab_terms:
                     value=existing,
                     placeholder="35.00,52.50",
                     key="dues_rate_values",
+                    disabled=identity.read_only,
                 )
             with rate_columns[2]:
                 st.markdown("&nbsp;", unsafe_allow_html=True)
                 confirmed = st.checkbox(
-                    "Confirmed", value=already_confirmed, key="dues_rate_confirmed"
+                    "Confirmed", value=already_confirmed, key="dues_rate_confirmed",
+                    disabled=identity.read_only,
                 )
             if st.form_submit_button("Save rates", type="primary", disabled=identity.read_only):
                 parsed = dues.parse_rates(entered)
@@ -216,19 +219,19 @@ with tab_terms:
             price_columns = st.columns(4)
             early_price = price_columns[0].number_input(
                 "Early price", min_value=0.0, step=5.0, format="%.2f",
-                value=_stored_price("dues_early_price"), placeholder="50.00",
+                value=_stored_price("dues_early_price"), placeholder="50.00", disabled=identity.read_only,
             )
             increase_date = price_columns[1].date_input(
                 "Early price through", value=_stored_day("dues_increase_date"),
-                help="The last day the early price applies, inclusive.",
+                help="The last day the early price applies, inclusive.", disabled=identity.read_only,
             )
             late_price = price_columns[2].number_input(
                 "Then", min_value=0.0, step=5.0, format="%.2f",
-                value=_stored_price("dues_late_price"), placeholder="65.00",
+                value=_stored_price("dues_late_price"), placeholder="65.00", disabled=identity.read_only,
             )
             late_cutoff = price_columns[3].date_input(
                 "Late after", value=_stored_day("dues_late_cutoff"),
-                help="Payments after this date are flagged: late dues, or paying for someone else?",
+                help="Payments after this date are flagged: late dues, or paying for someone else?", disabled=identity.read_only,
             )
             if st.form_submit_button("Save price dates", type="primary", disabled=identity.read_only):
                 if (early_price is None) != (late_price is None) or (
@@ -298,13 +301,15 @@ with tab_terms:
                     step=100.0,
                     format="%.2f",
                     key="sponsorship_goal_value",
+                    disabled=identity.read_only,
                 )
             with goal_columns[2]:
                 st.markdown("&nbsp;", unsafe_allow_html=True)
                 clear_goal = st.checkbox(
-                    "No goal", value=goal_already_unset, key="sponsorship_goal_clear"
+                    "No goal", value=goal_already_unset, key="sponsorship_goal_clear",
+                    disabled=identity.read_only,
                 )
-            if st.form_submit_button("Save goal", type="primary"):
+            if st.form_submit_button("Save goal", type="primary", disabled=identity.read_only):
                 result = repo.set_term_sponsorship_goal(
                     goal_term,
                     None if clear_goal else entered_goal,
@@ -397,7 +402,7 @@ with tab_terms:
                             disabled=["transactionid", "Date", "Amount", "Details"],
                             column_config={
                                 "transactionid": None,  # identity only, not shown
-                                "Amount": st.column_config.NumberColumn(format="$%.2f"),
+                                "Amount": st.column_config.NumberColumn(format="dollar"),
                                 "Details": st.column_config.TextColumn(width="large"),
                                 "Sponsor": st.column_config.TextColumn(
                                     "Sponsor", help="Who this payment was actually from."
@@ -490,11 +495,11 @@ with tab_terms:
     with st.form("term_form"):
         columns = st.columns(2)
         with columns[0]:
-            term_id = st.text_input("Term ID", placeholder="FA26")
-            semester = st.text_input("Semester name", placeholder="Fall 2026")
+            term_id = st.text_input("Term ID", placeholder="FA26", disabled=identity.read_only)
+            semester = st.text_input("Semester name", placeholder="Fall 2026", disabled=identity.read_only)
         with columns[1]:
-            start_date = st.date_input("Start date")
-            end_date = st.date_input("End date")
+            start_date = st.date_input("Start date", disabled=identity.read_only)
+            end_date = st.date_input("End date", disabled=identity.read_only)
         add_clicked = st.form_submit_button("Add term", type="primary", disabled=identity.read_only)
 
     if add_clicked:

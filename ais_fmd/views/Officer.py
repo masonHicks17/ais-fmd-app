@@ -296,8 +296,8 @@ if len(line_names) > 1:
     shell.dataframe(
         by_line[["Budget line", "Budget", "Spent", "% Spent", "Status"]],
         column_config={
-            "Budget": st.column_config.NumberColumn(format="$%.2f"),
-            "Spent": st.column_config.NumberColumn(format="$%.2f"),
+            "Budget": st.column_config.NumberColumn(format="dollar"),
+            "Spent": st.column_config.NumberColumn(format="dollar"),
             "% Spent": st.column_config.TextColumn(width="small"),
             "Status": st.column_config.TextColumn(width="small"),
         },
@@ -400,7 +400,7 @@ if burn_column is not None:
                     columns={"Committee_Name": "Budget line", "Daily Burn": "Per day"}
                 ),
                 column_config={
-                    "Per day": st.column_config.NumberColumn(format="$%.2f"),
+                    "Per day": st.column_config.NumberColumn(format="dollar"),
                     "Projected Exhaustion": st.column_config.DateColumn(format="MMM D, YYYY"),
                     "Risk": st.column_config.TextColumn(width="small"),
                 },
@@ -459,7 +459,7 @@ else:
         shell.dataframe(
             reimb.display_frame(mine_requests),
             column_config={
-                "Amount": st.column_config.NumberColumn(format="$%.2f"),
+                "Amount": st.column_config.NumberColumn(format="dollar"),
                 "Submitted": st.column_config.DatetimeColumn(format="MMM D, YYYY"),
             },
         )

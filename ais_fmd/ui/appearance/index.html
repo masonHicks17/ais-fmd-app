@@ -1,0 +1,78 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>appearance</title></head>
+<body>
+<script>
+// Appearance switcher helper (2026-11-09). Streamlit keeps the chosen theme in
+// the browser, in localStorage, under one key per page path. This frame, which
+// takes no room on the page, does two things on every run:
+//
+//   1. reports the stored choice ("System" | "Light" | "Dark") back to Python,
+//      so the control in the profile menu shows what is in force;
+//   2. when Python passes a new choice, writes it for every page the app has
+//      and reloads, because Streamlit reads the key only when a page loads.
+//
+// It never writes anything but those keys, and never reads anything else.
+(function () {
+  var OWN_KEY = "ais-appearance";
+  var VERSION = 2;                      // Streamlit's CACHED_THEME_VERSION (1.66)
+  var parentWindow = window.parent;
+  var store;
+  try { store = parentWindow.localStorage; } catch (e) { store = null; }
+
+  function send(type, extra) {
+    var message = { isStreamlitMessage: true, type: type };
+    for (var k in extra) { message[k] = extra[k]; }
+    parentWindow.postMessage(message, "*");
+  }
+  function keyFor(path) { return "stActiveTheme-" + path + "-v" + VERSION; }
+  function readJSON(key) {
+    try { return JSON.parse(store.getItem(key)); } catch (e) { return null; }
+  }
+  function valid(choice) { return choice === "System" || choice === "Light" || choice === "Dark"; }
+
+  function render(args) {
+    if (!store) { send("streamlit:setComponentValue", { value: "System", dataType: "json" }); return; }
+    var here = parentWindow.location.pathname;
+    // Python sends page url_paths ("", "Events"); Streamlit keys on the full
+    // pathname ("/Events", or "/app/Events" behind a prefix), so join them on
+    // the current page's base.
+    var base = here.replace(/\/[^\/]*$/, "/");
+    var paths = (args.paths && args.paths.length) ? args.paths.map(function (p) { return base + p; }) : [here];
+    var stored = store.getItem(OWN_KEY);
+    var choice = valid(args.want) ? args.want : (valid(stored) ? stored : "System");
+
+    var before = readJSON(keyFor(here)) || "System";
+    if (valid(args.want) && args.want !== stored) {
+      store.setItem(OWN_KEY, args.want);
+      for (var i = 0; i < paths.length; i++) {
+        var key = keyFor(paths[i]);
+        if (choice === "System") { store.removeItem(key); } else { store.setItem(key, JSON.stringify(choice)); }
+      }
+    }
+    var after = readJSON(keyFor(here)) || "System";
+
+    send("streamlit:setComponentValue", { value: choice, dataType: "json" });
+    if (before !== after) {
+      // Streamlit's component frame may not navigate its parent (no
+      // allow-top-navigation), but it is same-origin, so a script added to the
+      // parent document runs there and may. The sandbox identity rides along
+      // in the URL (see ui/appearance.py).
+      var target = args.reload_query ? parentWindow.location.pathname + "?" + args.reload_query : null;
+      var code = target ? "window.location.assign(" + JSON.stringify(target) + ");" : "window.location.reload();";
+      var script = parentWindow.document.createElement("script");
+      script.textContent = code;
+      parentWindow.document.body.appendChild(script);
+    }
+  }
+
+  window.addEventListener("message", function (event) {
+    var data = event.data;
+    if (data && data.type === "streamlit:render") { render(data.args || {}); }
+  });
+  send("streamlit:setFrameHeight", { height: 0 });
+  send("streamlit:componentReady", { apiVersion: 1 });
+})();
+</script>
+</body>
+</html>

@@ -79,7 +79,7 @@ with left:
         max_value=150.0,
         value=float(suggestion["dues_rate"]),
         step=2.50,
-        format="$%.2f",
+        format="dollar",
         key="planner_dues_rate",
     )
     # Fixed 0-300, not `max(400, suggestion["expected_members"] * 2)`: a range
@@ -208,9 +208,9 @@ with table_column:
     shell.dataframe(
         comparison,
         column_config={
-            "Baseline": st.column_config.NumberColumn(format="$%.2f"),
-            "Scenario": st.column_config.NumberColumn(format="$%.2f"),
-            "Change": st.column_config.NumberColumn(format="$%.2f"),
+            "Baseline": st.column_config.NumberColumn(format="dollar"),
+            "Scenario": st.column_config.NumberColumn(format="dollar"),
+            "Change": st.column_config.NumberColumn(format="dollar"),
         },
     )
 
@@ -250,9 +250,9 @@ if not committees.empty:
     shell.dataframe(
         committees,
         column_config={
-            "Baseline": st.column_config.NumberColumn(format="$%.2f"),
-            "Scenario": st.column_config.NumberColumn(format="$%.2f"),
-            "Change": st.column_config.NumberColumn(format="$%.2f"),
+            "Baseline": st.column_config.NumberColumn(format="dollar"),
+            "Scenario": st.column_config.NumberColumn(format="dollar"),
+            "Change": st.column_config.NumberColumn(format="dollar"),
         },
     )
 

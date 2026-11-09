@@ -257,3 +257,17 @@ def test_my_plan_shows_spent_planned_and_room_for_extras(seeded_db, use_db):
     assert any(m.value == "$400" for m in app.metric if m.label == "Planned events ahead")
     text = " ".join(str(m.value) for m in app.markdown)
     assert "for extras" in text or "over" in text
+
+
+def test_the_calendar_also_draws_a_day_list_for_phones():
+    from ais_fmd.ui import calendar_grid as cg
+
+    chips = {date(2026, 11, 18): [cg.Chip("Bar tab <Grove>", "plan &#36;265", planned=True)],
+             date(2026, 11, 3): [cg.Chip("Consulting Meeting", "18:30")],
+             date(2026, 12, 1): [cg.Chip("Next month")]}
+    html = cg.month_grid(2026, 11, chips, today=date(2026, 11, 9))
+    listed = html[html.index('<div class="ais-agenda">'):]
+    assert "@media (max-width: 640px)" in html
+    assert listed.index("Consulting Meeting") < listed.index("Bar tab &lt;Grove&gt;"), "days in order, titles escaped"
+    assert "Next month" not in listed and "ais-cal-ev planned" in listed
+    assert "Nothing on this month" in cg.agenda(2026, 10, chips)

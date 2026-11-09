@@ -325,10 +325,10 @@ with st.form("review_queue_form"):
                     unsafe_allow_html=True,
                 )
             elif row["match_rule"]:
-                st.caption(
-                    f"Suggestion: {row['match_rule']} "
-                    f"(confidence {row['confidence']:.0%}, via {row['match_source']})"
-                )
+                rule, confidence = str(row["match_rule"]), f"{row['confidence']:.0%}"
+                # The rule text often states its own confidence; don't say it twice.
+                tail = "" if confidence in rule else f" ({confidence} confidence)"
+                st.caption(f"Suggestion: {rule}{tail}")
             else:
                 st.caption("No card on the roster or rule matched this one.")
 

@@ -120,25 +120,65 @@ def test_a_vp_can_narrow_to_their_own_committee(events_db):
     assert "Zzmembership Social" in text and "Zzconsulting" not in text
 
 
-def test_picking_another_committees_event_says_who_can_see_its_cost(events_db):
-    with sqlite3.connect(events_db) as db:
-        consulting_event = db.execute("SELECT event_id FROM events WHERE external_key = 'k-con'").fetchone()[0]
-    app = run_as(auth.Role.OFFICER, MEMBERSHIP, events_committee_vp="All club events")
-    picker = next(box for box in app.selectbox if box.label == "Event")
-    app = picker.set_value(consulting_event).run()
-    assert_clean(app, "Events as the Membership VP, a Consulting event picked")
+def _event_id(db_path, key: str) -> int:
+    with sqlite3.connect(db_path) as db:
+        return db.execute("SELECT event_id FROM events WHERE external_key = ?", (key,)).fetchone()[0]
+
+
+def test_opening_another_committees_event_says_who_can_see_its_cost(events_db):
+    app = run_as(auth.Role.OFFICER, MEMBERSHIP, events_committee_vp="All club events",
+                 events_open=_event_id(events_db, "k-con"))
+    assert_clean(app, "Events as the Membership VP, a Consulting event opened")
     text = page_text(app)
     assert "visible to the Consulting VP and the treasurer" in text
     assert not money_seen(text, THEIRS)
 
 
-def test_a_vp_cannot_sync_link_or_unlink(events_db):
+def test_opening_their_own_event_shows_its_purchases_without_move_or_unlink(events_db):
+    app = run_as(auth.Role.OFFICER, MEMBERSHIP, events_open=_event_id(events_db, "k-mem"))
+    assert_clean(app, "Events as the Membership VP, own event opened")
+    assert money_seen(page_text(app), MINE)
+    assert not [b for b in app.button if b.key and b.key.startswith("events_unlink_")]
+    assert not [box for box in app.selectbox if box.key and box.key.startswith("events_move_")]
+
+
+def test_another_committees_event_offers_a_vp_nothing_to_add(events_db):
+    app = run_as(auth.Role.OFFICER, MEMBERSHIP, events_open=_event_id(events_db, "k-con"))
+    assert not [box for box in app.selectbox if box.key and box.key.startswith("events_add_")]
+    assert not [b for b in app.button if b.key and b.key.startswith(("events_add_go_", "events_suggest_"))]
+
+
+def test_a_vp_can_add_an_unlinked_purchase_of_theirs_to_their_event(events_db):
+    with sqlite3.connect(events_db) as db:
+        db.execute(
+            "INSERT INTO transactions (transaction_date, details, amount, account, budget_category, natural_key) "
+            "VALUES (?, 'PURCHASE AUTHORIZED ON 01/01 ZZMEMSNACKS', -42.42, 'Wells Fargo', ?, 'test-memsnacks')",
+            (_day(3), MEMBERSHIP),
+        )
+    event = _event_id(events_db, "k-mem")
+    app = run_as(auth.Role.OFFICER, MEMBERSHIP, events_open=event)
+    add = next(box for box in app.selectbox if box.key == f"events_add_{event}")
+    assert not any("now on" in option for option in add.options), "a VP doesn't take purchases off other events"
+    assert not any("Zzconshop" in option or "Barcade" in option for option in add.options), "only their committee's"
+    add.select(next(option for option in add.options if "Zzmemsnacks" in option))
+    app.session_state["events_open"] = event
+    app = app.run()
+    next(b for b in app.button if b.key == f"events_add_go_{event}").click()
+    app.session_state["events_open"] = event
+    app.run()
+    with sqlite3.connect(events_db) as db:
+        linked = db.execute(
+            "SELECT e.external_key, l.linked_by FROM event_links l JOIN transactions t ON t.transactionid = l.transaction_id "
+            "JOIN events e USING (event_id) WHERE t.details LIKE '%ZZMEMSNACKS'"
+        ).fetchone()
+    assert linked == ("k-mem", "x@sandbox.local")
+
+
+def test_a_vp_cannot_sync_move_or_unlink(events_db):
     app = run_as(auth.Role.OFFICER, MEMBERSHIP)
     labels = {button.label for button in app.button}
-    assert not any(label.startswith("Link") for label in labels)
     assert "Unlink" not in labels and "Sync these events" not in labels
     assert not app.get("popover"), "no 'Sync from a file' for a VP"
-    assert not any(box.label == "Unlink a purchase" for box in app.selectbox)
 
 
 def test_the_treasurer_still_sees_every_committees_money(events_db):

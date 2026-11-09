@@ -16,6 +16,15 @@ from ais_fmd.domain import report as report_domain
 from ais_fmd.domain.terms import default_semester_index, ordered_semesters
 from ais_fmd.ui import shell
 
+# Where each alert's "→" line leads. The hub tab is chosen the way Home does it:
+# `shell.hub` reads the hub's session key before it draws.
+_ACTION_TARGETS = {
+    "unreconciled": ("ais_fmd/views/Reconciliation.py", None),
+    "uncategorized_backlog": ("ais_fmd/views/TransactionsHub.py", "Review Queue"),
+    "stale_data": ("ais_fmd/views/TransactionsHub.py", "Import"),
+    "unbudgeted_spend": ("ais_fmd/views/Treasury.py", None),
+}
+
 auth.require(auth.Role.MEMBER)
 
 shell.environment_banner()
@@ -63,7 +72,7 @@ with tab_alerts:
         st.markdown('<hr class="ais-rule" />', unsafe_allow_html=True)
 
         style = {"critical": "over", "warning": "approaching", "info": "muted"}
-        for alert in alerts:
+        for index, alert in enumerate(alerts):
             with st.container(border=True):
                 st.markdown(
                     f"{shell.pill(alert.severity, style.get(alert.severity, 'muted'))} "
@@ -71,7 +80,15 @@ with tab_alerts:
                     unsafe_allow_html=True,
                 )
                 shell.say(alert.detail)
-                if alert.action:
+                target = _ACTION_TARGETS.get(alert.code)
+                if alert.action and target:
+                    page, tab = target
+                    if st.button(alert.action, key=f"alert_go_{alert.code}_{index}", type="tertiary",
+                                 icon=":material/arrow_forward:"):
+                        if tab:
+                            st.session_state["transactions_hub"] = tab
+                        st.switch_page(page)
+                elif alert.action:
                     st.caption(f"→ {alert.action}")
 
         with st.expander("How this differs from Data Quality"):

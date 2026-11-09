@@ -151,7 +151,7 @@ else:
             to_check.drop(columns=["transaction_id"]),
             column_config={
                 "Date": st.column_config.DateColumn(format="MMM D"),
-                "Amount": st.column_config.NumberColumn(format="$%.2f"),
+                "Amount": st.column_config.NumberColumn(format="dollar"),
                 "Detail": st.column_config.TextColumn(width="large"),
             },
         )
@@ -168,7 +168,7 @@ with rate_column:
     )
     shell.dataframe(
         rates,
-        column_config={"Amount": st.column_config.NumberColumn(format="$%.2f")},
+        column_config={"Amount": st.column_config.NumberColumn(format="dollar")},
     )
     st.caption(
         "Multiple amounts usually mean an instalment rate alongside the full rate."
@@ -189,7 +189,7 @@ with roster_col:
         shell.dataframe(
             roster,
             column_config={
-                "Paid": st.column_config.NumberColumn(format="$%.2f"),
+                "Paid": st.column_config.NumberColumn(format="dollar"),
                 "First payment": st.column_config.DateColumn(format="MMM D, YYYY"),
             },
             height=340,
@@ -207,8 +207,8 @@ with table_col:
     shell.dataframe(
         comparison,
         column_config={
-            "Collected": st.column_config.NumberColumn(format="$%.2f"),
-            "Average": st.column_config.NumberColumn(format="$%.2f"),
+            "Collected": st.column_config.NumberColumn(format="dollar"),
+            "Average": st.column_config.NumberColumn(format="dollar"),
         },
     )
 with chart_col:
@@ -218,6 +218,7 @@ with chart_col:
             label_column="Semester",
             value_column="Amount",
             color=theme.active().income,
+            sort=False,  # terms in time order, not by amount
         ),
         key="dues_by_semester",
     )

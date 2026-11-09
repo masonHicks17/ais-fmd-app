@@ -144,20 +144,27 @@ def same_point_bars(frame: pd.DataFrame, typical: float | None, typical_label: s
 
 
 # Each committee's colour, shared with the Events calendar so a committee looks
-# the same everywhere it appears.
-COMMITTEE_COLORS: dict[int, str] = {
-    5: theme.ACCENT,            # Membership
-    4: theme.INK,               # President
-    6: theme.INK_MUTE,          # Operations
-    7: "#2F6FDB",               # Consulting
-    10: theme.POSITIVE,         # Professional Development
-    9: theme.WARNING,           # Marketing
-    2: "#6B5BD6",               # Treasury
-}
+# the same everywhere it appears. Built at call time: the tokens follow the
+# session's light or dark theme.
+def committee_colors() -> dict[int, str]:
+    t = theme.tokens()
+    return {
+        5: t.ACCENT,                              # Membership
+        4: t.INK,                                 # President
+        6: t.INK_MUTE,                            # Operations
+        7: "#5B8DEF" if t.dark else "#2F6FDB",    # Consulting
+        10: t.POSITIVE,                           # Professional Development
+        9: t.WARNING,                             # Marketing
+        2: "#9A8DF0" if t.dark else "#6B5BD6",    # Treasury
+    }
 
 
 def committee_color(committee_id: int | None) -> str:
-    return COMMITTEE_COLORS.get(int(committee_id), theme.INK) if committee_id is not None else theme.INK
+    """A committee's colour; an unknown or missing committee is muted grey."""
+    t = theme.tokens()
+    if committee_id is None:
+        return t.INK_MUTE
+    return committee_colors().get(int(committee_id), t.INK_MUTE)
 
 
 def kind_bars(split: pd.DataFrame, color: str) -> go.Figure:
@@ -165,6 +172,7 @@ def kind_bars(split: pd.DataFrame, color: str) -> go.Figure:
     Spending by kind (domain/spend_kinds.py), biggest at the top, each bar
     labelled with its amount and share so no table is needed beside it.
     """
+    t = theme.tokens()
     if split.empty:
         return charts.empty_figure("Nothing spent yet.")
     data = split.iloc[::-1]  # plotly draws the first row at the bottom
@@ -173,7 +181,7 @@ def kind_bars(split: pd.DataFrame, color: str) -> go.Figure:
         marker=dict(color=color, cornerradius=6),
         text=[f"${amount:,.0f} · {share:.0f}%" for amount, share in zip(data["Amount"], data["Share"])],
         textposition="outside", cliponaxis=False,
-        textfont=dict(color=theme.INK_SOFT, size=12),
+        textfont=dict(color=t.INK_SOFT, size=12),
         customdata=data["Charges"],
         hovertemplate="<b>%{y}</b><br>$%{x:,.2f} across %{customdata} charge(s)<extra></extra>",
     ))
@@ -181,6 +189,6 @@ def kind_bars(split: pd.DataFrame, color: str) -> go.Figure:
         height=max(220, 70 + 44 * len(data)), showlegend=False, bargap=0.35,
         margin=dict(l=8, r=8, t=8, b=8),
         xaxis=dict(visible=False, range=[0, float(data["Amount"].max()) * 1.45]),
-        yaxis=dict(title=None, ticks="", tickfont=dict(size=13, color=theme.INK)),
+        yaxis=dict(title=None, ticks="", tickfont=dict(size=13, color=t.INK)),
     )
     return figure

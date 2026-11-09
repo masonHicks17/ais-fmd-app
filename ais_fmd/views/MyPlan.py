@@ -45,7 +45,7 @@ shell.environment_banner()
 shell.page_header("My Plan", "A simple budget for your committee: plan each kind of spending, then track it.")
 
 _FLASH = "my_plan_flash"
-_MONEY = st.column_config.NumberColumn(format="$%.2f")
+_MONEY = st.column_config.NumberColumn(format="dollar")
 flash = st.session_state.pop(_FLASH, None)
 if flash:
     shell.notify("success", flash)
@@ -131,10 +131,10 @@ def _plan_editor(semester: str, saved: pd.DataFrame, sheet: pd.DataFrame, compar
     config = {
         "purpose": st.column_config.TextColumn("Category"),
         "amount": st.column_config.NumberColumn(
-            "Planned", min_value=0.0, max_value=plan.MAX_AMOUNT, step=10.0, format="$%.2f"
+            "Planned", min_value=0.0, max_value=plan.MAX_AMOUNT, step=10.0, format="dollar"
         ),
-        "compare": st.column_config.NumberColumn(compare, format="$%.2f", disabled=True),
-        "left": st.column_config.NumberColumn("Left", format="$%.2f", disabled=True),
+        "compare": st.column_config.NumberColumn(compare, format="dollar", disabled=True),
+        "left": st.column_config.NumberColumn("Left", format="dollar", disabled=True),
         "note": st.column_config.TextColumn("Note", max_chars=plan.MAX_NOTE_LENGTH),
     }
     order = ["purpose", "amount", "compare", *(["left"] if compare == "Spent" else []), "note"]
@@ -391,7 +391,7 @@ def _plan_calendar(planned: pd.DataFrame, window: tuple[date, date] | None, key:
             chips.setdefault(event.day, []).append(calendar_grid.Chip(
                 title=str(event.title),
                 meta_html=" · ".join(meta),
-                color=committee_charts.committee_color(event.committee_id) if pd.notna(event.committee_id) else "#86878B",
+                color=committee_charts.committee_color(int(event.committee_id) if pd.notna(event.committee_id) else None),
                 tip=f"On the club calendar: {event.title}" + (f" · reported spend {format_currency(cost)}" if cost else ""),
             ))
     for event in planned.itertuples():
@@ -417,6 +417,25 @@ def _plan_calendar(planned: pd.DataFrame, window: tuple[date, date] | None, key:
     if not undated.empty:
         caption += f" Not dated yet: {', '.join(undated['title'].astype(str))}."
     st.caption(caption)
+
+
+def _plan_cards(planned: pd.DataFrame) -> None:
+    """The planned events as cards, for phones; the table there scrolled sideways."""
+    if planned.empty:
+        return
+    color = committee_charts.committee_color(committee_id)
+    cards = []
+    for event in planned.itertuples():
+        day = pd.to_datetime(event.event_date, errors="coerce")
+        when = f"{day:%a %b %d}" if pd.notna(day) else "Not dated yet"
+        meta = [when, f"plan {format_currency(float(event.estimated_cost or 0))}"]
+        if pd.notna(event.expected_attendance):
+            meta.append(f"~{int(event.expected_attendance)} people")
+        note = f"<em>{escape(str(event.note))}</em>" if isinstance(event.note, str) and event.note else ""
+        cards.append(f'<div class="ais-plan-card" style="--c:{color}"><b>{escape(str(event.title))}</b>'
+                     f'<span>{" · ".join(meta)}</span>{note}</div>')
+    shell.html('<div class="ais-plan-cards">' + "".join(cards)
+               + '<em style="font-size:.8rem">To add or remove events, open My Plan on a laptop.</em></div>')
 
 
 def _planned_editor(semester: str, planned: pd.DataFrame, window, key: str) -> None:
@@ -462,20 +481,26 @@ def _planned_editor(semester: str, planned: pd.DataFrame, window, key: str) -> N
         ),
         "title": st.column_config.TextColumn("Event", max_chars=event_ideas.MAX_TITLE),
         "estimated_cost": st.column_config.NumberColumn(
-            "Est. cost", min_value=0.0, max_value=event_ideas.MAX_COST, step=5.0, format="$%.2f"),
+            "Est. cost", min_value=0.0, max_value=event_ideas.MAX_COST, step=5.0, format="dollar"),
         "expected_attendance": st.column_config.NumberColumn("Expected people", min_value=0, step=1, format="%d"),
         "note": st.column_config.TextColumn("Note", max_chars=event_ideas.MAX_NOTE, width="large"),
     }
     order = ["remove", "event_date", "title", "estimated_cost", "expected_attendance", "note"]
+    # Phones: one card per event (CSS shows these under 640px and hides the table).
+    _plan_cards(planned)
     if not can_edit:
-        shell.dataframe(frame, column_config=config, column_order=order[1:])
+        with st.container(key=f"{key}_table"):
+            shell.dataframe(frame, column_config=config, column_order=order[1:])
         return
-    edited = st.data_editor(
-        frame, column_config=config, column_order=order, num_rows="dynamic",
-        hide_index=True, width="stretch", key=f"{key}_editor_{_version(key)}",
-    )
-    st.caption("Add an event in the bottom row, or pick ideas below. Tick Remove to drop one; you'll be asked first.")
-    if st.button("Save events", type="primary", key=f"{key}_save"):
+    table = st.container(key=f"{key}_table")
+    with table:
+        edited = st.data_editor(
+            frame, column_config=config, column_order=order, num_rows="dynamic",
+            hide_index=True, width="stretch", key=f"{key}_editor_{_version(key)}",
+        )
+        st.caption("Add an event in the bottom row, or pick ideas below. Tick Remove to drop one; you'll be asked first.")
+        save = st.button("Save events", type="primary", key=f"{key}_save")
+    if save:
         kept = edited[~edited["remove"].fillna(False).astype(bool)]
         events, problems = event_ideas.clean_planned_events(kept, window, semester)
         if problems:
@@ -523,7 +548,7 @@ def _ideas(semester: str, planned: pd.DataFrame, key: str) -> None:
         "Avg people": st.column_config.NumberColumn(format="%d", width="small"),
         "Last count": st.column_config.NumberColumn(format="%d", width="small"),
         "Avg cost": st.column_config.NumberColumn(format="$%.0f", width="small"),
-        "Per person": st.column_config.NumberColumn(format="$%.2f", width="small"),
+        "Per person": st.column_config.NumberColumn(format="dollar", width="small"),
         "Past ones": st.column_config.TextColumn(width="medium",
                                                  help="Which game, speaker or theme it was each time."),
     }

@@ -80,10 +80,10 @@ else:
     shell.dataframe(
         frame,
         column_config={
-            "Opening": st.column_config.NumberColumn(format="$%.2f"),
-            "Expected Closing": st.column_config.NumberColumn(format="$%.2f"),
-            "Statement Closing": st.column_config.NumberColumn(format="$%.2f"),
-            "Discrepancy": st.column_config.NumberColumn(format="$%.2f"),
+            "Opening": st.column_config.NumberColumn(format="dollar"),
+            "Expected Closing": st.column_config.NumberColumn(format="dollar"),
+            "Statement Closing": st.column_config.NumberColumn(format="dollar"),
+            "Discrepancy": st.column_config.NumberColumn(format="dollar"),
         },
     )
 

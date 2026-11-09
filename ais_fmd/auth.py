@@ -116,6 +116,7 @@ def current_user() -> Identity:
     if _sandbox_open():
         if SESSION_KEY not in st.session_state:
             st.session_state[SESSION_KEY] = _default_identity()
+            _restore_person_from_url()
         return st.session_state[SESSION_KEY]
 
     identity = st.session_state.get(SESSION_KEY)
@@ -540,6 +541,39 @@ def role_switcher() -> None:
         on_change=_apply_sandbox_person,
         help="Sandbox only. In production this comes from Google sign-in and Officer Access.",
     )
+
+
+def person_label(identity: Identity) -> str | None:
+    """The sign-in picker label for `identity` ("Membership VP"), or None if it isn't on the list."""
+    return next(
+        (label for label, role, committee in sandbox_people()
+         if role == identity.role and (role != Role.OFFICER or committee == identity.committee_id)),
+        None,
+    )
+
+
+def _restore_person_from_url() -> None:
+    """
+    A page reload starts a new session, which in the sandbox means back to the
+    Treasurer. The Appearance switch reloads on purpose (ui/appearance.py), so
+    it puts the current person in the URL as `?as=Membership VP`; this reads it
+    once and drops it. Sandbox only: in production the identity never comes
+    from the client.
+    """
+    try:
+        chosen = st.query_params.get("as")
+    except Exception:  # noqa: BLE001 - no query params outside a page run
+        return
+    if not chosen:
+        return
+    person = next((p for p in sandbox_people() if p[0] == chosen), None)
+    if person is not None:
+        _label, role, committee_id = person
+        st.session_state[SESSION_KEY] = Identity(email=current_user().email, role=role, committee_id=committee_id)
+    try:
+        del st.query_params["as"]
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def _apply_sandbox_person() -> None:

@@ -16,14 +16,17 @@ from html import escape
 from ais_fmd.domain import vp_history
 from ais_fmd.domain.money import format_currency
 
-from . import shell
+from . import shell, theme
 
 # Status from `vp_metrics.status_for` -> the tone the tiles and bar use.
 TONES = {"on track": "ok", "approaching": "warn", "over": "over"}
 
-# Pareto segments, biggest first: ink fading to grey. Orange stays reserved for
-# "over budget", so no payee is ever drawn in the warning colour.
-SEGMENT_COLORS = ["#111111", "#3A3B3E", "#5F6064", "#86878B", "#A9AAAD", "#C9C9C4"]
+# Pareto segments, biggest first: ink fading to grey (`theme.Tokens.SEGMENTS`).
+# Orange stays reserved for "over budget", so no payee is ever drawn in the
+# warning colour.
+def _segment(i: int) -> str:
+    segments = theme.tokens().SEGMENTS
+    return segments[min(i, len(segments) - 1)]
 
 _PILL_KIND = {"on track": "on track", "approaching": "warn", "over": "over"}
 
@@ -75,7 +78,7 @@ def pareto(rows: list[dict], budget: float, spent: float) -> str:
     scale = max(budget, spent, 0.01)
     segments = "".join(
         f'<span style="width:{row["amount"] / scale * 100:.2f}%;'
-        f'background:{SEGMENT_COLORS[min(i, len(SEGMENT_COLORS) - 1)]}" '
+        f'background:{_segment(i)}" '
         f'title="{escape(row["label"])}: {format_currency(row["amount"])}"></span>'
         for i, row in enumerate(rows)
     )
@@ -95,7 +98,7 @@ def pareto(rows: list[dict], budget: float, spent: float) -> str:
 
     body = "".join(
         "<tr>"
-        f'<td><i class="ais-swatch" style="background:{SEGMENT_COLORS[min(i, len(SEGMENT_COLORS) - 1)]}"></i></td>'
+        f'<td><i class="ais-swatch" style="background:{_segment(i)}"></i></td>'
         f'<td>{escape(row["label"])}</td>'
         f'<td class="num">{format_currency(row["amount"])}</td>'
         f'<td class="num">{_pct(row["share"])}</td>'
@@ -105,7 +108,7 @@ def pareto(rows: list[dict], budget: float, spent: float) -> str:
     )
     rest_row = (
         "<tr>"
-        '<td><i class="ais-swatch ais-stack-rest" style="background:repeating-linear-gradient(135deg,#F3F3F0 0 3px,#ECECE9 3px 6px)"></i></td>'
+        f'<td><i class="ais-swatch ais-stack-rest" style="background:repeating-linear-gradient(135deg,{theme.tokens().SUBTLE} 0 3px,{theme.tokens().BUDGET} 3px 6px)"></i></td>'
         f'<td class="muted">{"Remaining" if spent <= budget else "Over budget by"}</td>'
         f'<td class="num muted">{format_currency(abs(budget - spent))}</td><td></td><td></td>'
         "</tr>"
@@ -144,7 +147,8 @@ def comparison_table(comparison: vp_history.PastComparison, status: str) -> str:
     table = comparison.table
     values = [comparison.current_percent, *table["Of its budget"].tolist()]
     scale = max([100.0] + [v for v in values if v is not None and v == v])
-    now_color = {"ok": "#157F46", "warn": "#A15C07", "over": "#D6400E"}.get(tone_for(status))
+    t = theme.tokens()
+    now_color = {"ok": t.POSITIVE, "warn": t.WARNING, "over": t.ACCENT}.get(tone_for(status))
     current = comparison.current_percent
 
     rows = [

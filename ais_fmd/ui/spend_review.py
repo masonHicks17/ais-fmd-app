@@ -65,7 +65,7 @@ def treasurer_panel(transactions: pd.DataFrame, identity, *, inline: bool = Fals
         columns = st.columns(3)
         columns[0].metric("New charges to check", f"{selection.count:,}")
         # Four places below a dollar: a whole month of Haiku is fractions of a cent.
-        spent_text = f"${spent:,.4f}" if spent < 1 else f"${spent:,.2f}"
+        spent_text = "$0.00" if not spent else (f"${spent:,.4f}" if spent < 1 else f"${spent:,.2f}")
         columns[1].metric("Model spend this month", spent_text, help=f"Capped at ${cap:,.2f}.")
         columns[2].metric("Already checked", f"{selection.skipped.get('already reviewed', 0):,}")
 
@@ -142,7 +142,7 @@ def _last_run_table(reviews: pd.DataFrame, transactions: pd.DataFrame) -> None:
     shell.dataframe(
         table,
         column_config={
-            "Amount": st.column_config.NumberColumn(format="$%.2f"),
+            "Amount": st.column_config.NumberColumn(format="dollar"),
             "Confidence": st.column_config.ProgressColumn(format="%.0f%%", min_value=0, max_value=100),
             "Details": st.column_config.TextColumn(width="large"),
             "Haiku's reason": st.column_config.TextColumn(width="large"),

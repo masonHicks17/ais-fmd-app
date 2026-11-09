@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import re
 import runpy
+from urllib.parse import quote
 from pathlib import Path
 from typing import Iterable
 
@@ -39,7 +40,7 @@ import streamlit as st
 
 from .. import auth, settings
 from ..domain.money import format_currency, format_delta
-from . import theme
+from . import appearance, theme
 
 _HUB_PENDING_KEY = "_ais_hub_pending"
 _VIEWS_DIR = Path(__file__).resolve().parent.parent / "views"
@@ -59,7 +60,7 @@ def bootstrap(page_title: str = "UF AIS Financial Management") -> None:
         initial_sidebar_state="collapsed",
     )
     theme.register()
-    st.markdown(theme.APP_CSS, unsafe_allow_html=True)
+    st.markdown(theme.app_css(), unsafe_allow_html=True)
 
 
 def environment_banner() -> None:
@@ -215,6 +216,41 @@ def notify(kind: str, text: str) -> None:
     {"success": st.success, "warning": st.warning, "info": st.info}[kind](money_safe(text))
 
 
+def pace_rows(table: pd.DataFrame, fraction: float, *, rows: int = 3) -> str:
+    """
+    "Committees to watch" as progress rows (2026-11-09): the committee's name
+    and its share of budget used on one line, a bar beneath, and a tick on the
+    bar at how far the term has gone. Replaced a dot chart whose tick and dot
+    sat on top of each other in a narrow card.
+
+    `table` is `pace.committee_pace(...)`: Committee_Name, Budget, Spent, Used,
+    Runs out, Status. `fraction` is the share of the term elapsed (0-1).
+    """
+    from html import escape
+
+    t = theme.tokens()
+    mark = max(0.0, min(fraction * 100, 100.0))
+    out = []
+    for row in table.head(rows).itertuples():
+        used = float(row.Used)
+        color = t.STATUS_COLORS.get(str(row.Status), t.ON_TRACK)
+        detail = f"{format_currency(float(row.Spent))} of {format_currency(float(row.Budget))}"
+        runs_out = getattr(row, "_7", None) if not hasattr(row, "Runs_out") else None
+        runs_out = row[7] if runs_out is None and len(row) > 7 else runs_out
+        if runs_out is not None and not pd.isna(runs_out) and used < 100:
+            detail += f" · runs out {pd.Timestamp(runs_out):%b %d}"
+        if used >= 100:
+            detail += " · over budget"
+        out.append(
+            '<div class="ais-pace-row">'
+            f'<div class="ais-pace-head"><span>{escape(str(row.Committee_Name))}</span><b>{used:.0f}%</b></div>'
+            f'<div class="ais-meter-track"><div class="ais-meter-fill" style="width:{min(used, 100):.1f}%;background:{color}"></div>'
+            f'<div class="ais-meter-mark" style="left:{mark:.1f}%"></div></div>'
+            f'<small>{detail}</small></div>'
+        )
+    return '<div class="ais-pace-rows">' + "".join(out) + "</div>"
+
+
 def pill(label: str, kind: str = "muted") -> str:
     mapping = {
         "over": "ais-over",
@@ -237,10 +273,14 @@ def metric(
     trend: list[float] | None = None,
     color: str | None = None,
     bars: list[float] | None = None,
+    bar_labels: list[str] | None = None,
+    bar_hover: list[str] | None = None,
+    bar_note: str | None = None,
     tone: str | None = None,
 ) -> None:
     """
-    One KPI.
+    One KPI. `bar_labels` captions each mini bar ("F24"), `bar_hover` is each
+    bar's full reading, `bar_note` one line under the bars saying what they are.
 
     `tone` ("ok", "warn", "over") tints the tile and colours its value by status.
 
@@ -258,6 +298,7 @@ def metric(
     take the delta's red/green and sit on a filled panel, and cannot be given
     per-bar colours, so they could not follow "past terms grey, this term ink".
     """
+    t = theme.tokens()
     # A string is already formatted -- a percentage, a ratio, a count with a
     # unit. Passing one through `f"{value:,}"` raises, so a caller with anything
     # that is not a bare number had no way to use this at all.
@@ -296,14 +337,16 @@ def metric(
         # Two of the four tiles were saying something false. A caller that
         # knows what the figure means passes `color`; the old behaviour stays
         # as the fallback for callers that do not.
-        spark_color = color or theme.INK
+        spark_color = color or t.INK
         container.plotly_chart(
-            _transparent(charts.sparkline(trend, color=spark_color)),
+            _transparent(charts.sparkline(trend, color=spark_color, labels=bar_labels, hover=bar_hover)),
             width="stretch",
             theme=None,
             config={"displayModeBar": False},
             key=f"spark_{label}",
         )
+        if bar_note:
+            container.caption(bar_note)
 
 
 def metric_row(specs: Iterable[dict]) -> None:
@@ -323,6 +366,9 @@ def metric_row(specs: Iterable[dict]) -> None:
             trend=spec.get("trend"),
             color=spec.get("color"),
             bars=spec.get("bars"),
+            bar_labels=spec.get("bar_labels"),
+            bar_hover=spec.get("bar_hover"),
+            bar_note=spec.get("bar_note"),
             tone=spec.get("tone"),
         )
 
@@ -480,6 +526,18 @@ def dataframe(df: pd.DataFrame, **kwargs) -> None:
 # single light palette, so there is no second mode to switch to.
 
 
+def appearance_sync(pages: Iterable, current_identity_label: str | None = None) -> None:
+    """
+    Keep the browser's theme choice in step with the Appearance control. Call
+    once per run, after `st.navigation`, with every registered st.Page: the
+    choice is written for each page's path. In the sandbox the identity label
+    rides along in the reload URL so a theme change doesn't sign anyone out.
+    """
+    paths = [getattr(page, "url_path", "") or "" for page in pages]
+    query = f"as={quote(current_identity_label)}" if current_identity_label else None
+    appearance.sync(paths, reload_query=query)
+
+
 def profile_menu(links: Iterable, sandbox_controls=None) -> None:
     """
     The profile button at the top right, which replaced the sidebar (2026-11-08).
@@ -512,6 +570,11 @@ def profile_menu(links: Iterable, sandbox_controls=None) -> None:
                 st.markdown('<hr class="ais-rule" />', unsafe_allow_html=True)
                 for page in links:
                     st.page_link(page, width="stretch")
+
+            # Light or dark (2026-11-09). Streamlit follows the device unless a
+            # choice is made here; see ui/appearance.py for how the choice lands.
+            st.markdown('<hr class="ais-rule" />', unsafe_allow_html=True)
+            appearance.control()
 
             if settings.is_sandbox() and not settings.sandbox_login_enabled():
                 st.markdown('<hr class="ais-rule" />', unsafe_allow_html=True)
