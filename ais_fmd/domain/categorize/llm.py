@@ -39,7 +39,7 @@ from pathlib import Path
 import pandas as pd
 
 from ... import settings
-from ...config.categories import COMMITTEE_BY_ID, committee_name
+from ...config.categories import LINE_BY_ID as COMMITTEE_BY_ID, line_name as committee_name
 from .predicates import (
     COMMITTEE_PURPOSE,
     Classification,

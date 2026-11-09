@@ -53,7 +53,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 
-from ...config.categories import COMMITTEE_BY_ID, committee_name
+from ...config.categories import LINE_BY_ID as COMMITTEE_BY_ID, line_name as committee_name
 from ..money import parse_amount
 from .predicates import (
     COMMITTEE_PURPOSE,

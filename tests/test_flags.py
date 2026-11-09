@@ -151,9 +151,9 @@ def test_flagging_twice_does_not_stack_duplicates(seeded_db, use_db):
 
 def test_a_committee_that_owns_two_lines_can_flag_either(membership_db):
     backend = SqliteBackend()
-    passport_charge = charge_in(backend, 16)
-    assert backend.create_flag(passport_charge, (5,), NOTE, VP).error  # Membership line alone: no
-    assert backend.create_flag(passport_charge, (5, 16), NOTE, VP).ok  # both lines: yes
+    second_line_charge = charge_in(backend, 4)  # the President's line, as the second line
+    assert backend.create_flag(second_line_charge, (5,), NOTE, VP).error  # Membership line alone: no
+    assert backend.create_flag(second_line_charge, (5, 4), NOTE, VP).ok  # both lines: yes
 
 
 def test_the_treasurer_can_close_a_flag_once_and_it_can_be_raised_again(seeded_db, use_db):
@@ -317,12 +317,12 @@ def test_a_charge_that_moved_since_it_was_flagged_is_not_moved_again(seeded_db, 
     backend = SqliteBackend()
     charge, flag_id = _flagged(backend, 7)
     purpose = snapshot(backend, charge)["purpose"]
-    assert backend.update_transactions([TransactionChange(charge, purpose, 12)], TREASURER).updated == 1
+    assert backend.update_transactions([TransactionChange(charge, purpose, 10)], TREASURER).updated == 1
 
     result = backend.move_flagged_charge(flag_id, 9, TREASURER)
 
     assert result.error and "changed since it was flagged" in result.error
-    assert snapshot(backend, charge)["budget_category"] == 12  # untouched by the refused move
+    assert snapshot(backend, charge)["budget_category"] == 10  # untouched by the refused move
     assert backend.fetch_flags().iloc[0]["status"] == "open"
 
 

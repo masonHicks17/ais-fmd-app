@@ -42,7 +42,7 @@ def transaction(date: str = "2025-09-15", amount: float = -50.0) -> list[dict]:
                 "amount": amount,
                 "details": f"PURCHASE AUTHORIZED ON 09/15 MERCHANT {date}",
                 "account": "Wells Fargo",
-                "budget_category": 8,
+                "budget_category": 5,
                 "purpose": "Meeting Food",
             }
         ]
@@ -86,7 +86,7 @@ def test_edits_inside_a_locked_period_are_refused(backend):
 
     backend.set_term_lock("FA25", True, ACTOR)
     result = backend.update_transactions(
-        [TransactionChange(transaction_id=target, purpose="Merch", budget_category=13)], ACTOR
+        [TransactionChange(transaction_id=target, purpose="Merch", budget_category=9)], ACTOR
     )
 
     assert result.failed == [target]
@@ -103,7 +103,7 @@ def test_transactions_outside_the_locked_period_are_unaffected(backend):
     stored = backend.fetch_transactions()
     target = int(stored.iloc[0]["transactionid"])
     result = backend.update_transactions(
-        [TransactionChange(transaction_id=target, purpose="Merch", budget_category=13)], ACTOR
+        [TransactionChange(transaction_id=target, purpose="Merch", budget_category=9)], ACTOR
     )
     assert result.updated == 1
 
@@ -223,18 +223,18 @@ def test_receipt_coverage_is_measured_by_value():
 # --- Reimbursements (M8) -----------------------------------------------------
 
 def test_request_validation():
-    assert reimb.validate_request(0, "food", 8) is not None
-    assert reimb.validate_request(-5, "food", 8) is not None
-    assert reimb.validate_request(50, "", 8) is not None
+    assert reimb.validate_request(0, "food", 5) is not None
+    assert reimb.validate_request(-5, "food", 5) is not None
+    assert reimb.validate_request(50, "", 5) is not None
     assert reimb.validate_request(50, "food", None) is not None
-    assert reimb.validate_request(50, "food", 8) is None
+    assert reimb.validate_request(50, "food", 5) is None
 
 
 def test_request_lifecycle(backend):
     created = backend.create_reimbursement(
         {
             "requester": "ava@example.edu",
-            "committee_id": 8,
+            "committee_id": 5,
             "amount": 42.50,
             "description": "GBM groceries",
             "incurred_on": "2025-09-10",
@@ -260,7 +260,7 @@ def test_matching_requires_an_outgoing_transaction():
             {
                 "request_id": 1,
                 "requester": "ava@example.edu",
-                "committee_id": 8,
+                "committee_id": 5,
                 "amount": 42.50,
                 "status": reimb.APPROVED,
                 "incurred_on": "2025-09-10",
@@ -291,7 +291,7 @@ def test_matching_respects_the_date_window():
             {
                 "request_id": 1,
                 "requester": "ava@example.edu",
-                "committee_id": 8,
+                "committee_id": 5,
                 "amount": 42.50,
                 "status": reimb.APPROVED,
                 "incurred_on": "2025-09-10",
@@ -315,12 +315,12 @@ def test_already_claimed_transactions_are_not_offered_twice():
     requests = pd.DataFrame(
         [
             {
-                "request_id": 1, "requester": "a@x.edu", "committee_id": 8,
+                "request_id": 1, "requester": "a@x.edu", "committee_id": 5,
                 "amount": 42.50, "status": reimb.APPROVED, "incurred_on": "2025-09-10",
                 "submitted_at": "2025-09-11", "matched_transaction_id": None,
             },
             {
-                "request_id": 2, "requester": "b@x.edu", "committee_id": 8,
+                "request_id": 2, "requester": "b@x.edu", "committee_id": 5,
                 "amount": 42.50, "status": reimb.PAID, "incurred_on": "2025-09-10",
                 "submitted_at": "2025-09-11", "matched_transaction_id": 1,
             },
@@ -341,7 +341,7 @@ def test_only_approved_requests_are_matched():
     requests = pd.DataFrame(
         [
             {
-                "request_id": 1, "requester": "a@x.edu", "committee_id": 8,
+                "request_id": 1, "requester": "a@x.edu", "committee_id": 5,
                 "amount": 42.50, "status": reimb.PENDING, "incurred_on": "2025-09-10",
                 "submitted_at": "2025-09-11", "matched_transaction_id": None,
             }
@@ -395,13 +395,13 @@ def planning_data():
                 "PURCHASE AUTHORIZED ON 09/10 PUBLIX FL",
                 "PURCHASE AUTHORIZED ON 09/11 VISTAPRINT FL",
             ],
-            "budget_category": pd.array([1, 1, 8, 13], dtype="Int64"),
+            "budget_category": pd.array([1, 1, 5, 9], dtype="Int64"),
             "purpose": ["Dues", "Dues", "Meeting Food", "Merch"],
             "account": ["Wells Fargo"] * 4,
         }
     )
     budgets = pd.DataFrame(
-        {"termid": ["FA25", "FA25"], "committeeid": [8, 13], "budget_amount": [500.0, 500.0]}
+        {"termid": ["FA25", "FA25"], "committeeid": [5, 9], "budget_amount": [500.0, 500.0]}
     )
     return transactions, budgets, terms
 
@@ -413,7 +413,7 @@ def test_baseline_reflects_actuals(planning_data):
     assert baseline.expenses == pytest.approx(500.0)
     assert baseline.dues_payers == 2
     assert baseline.dues_rate == pytest.approx(35.0)
-    assert baseline.committee_spend[8] == pytest.approx(400.0)
+    assert baseline.committee_spend[5] == pytest.approx(400.0)
 
 
 def test_raising_dues_raises_projected_income(planning_data):
@@ -432,9 +432,9 @@ def test_cutting_a_committee_reduces_projected_expenses(planning_data):
 
     cut = scenarios.project(
         baseline,
-        scenarios.Scenario(dues_rate=35.0, expected_members=2, committee_multipliers={8: 0.5}),
+        scenarios.Scenario(dues_rate=35.0, expected_members=2, committee_multipliers={5: 0.5}),
     )
-    assert cut.committee_projection[8] == pytest.approx(200.0)
+    assert cut.committee_projection[5] == pytest.approx(200.0)
     assert cut.projected_expenses < baseline.expenses
 
 

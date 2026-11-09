@@ -52,7 +52,6 @@ LATEST_DATA_DAY = date(2026, 10, 22)
 # reduced.
 TARGET_SHARE = {
     5: {"FA24": 0.55, "SP25": 0.70, "FA25": 0.62, "SP26": 0.80, "FA26": 0.88},   # Membership: approaching
-    16: {"FA24": 0.45, "SP25": 0.60, "FA25": 0.40, "SP26": 0.75, "FA26": 1.12},  # Passport: over
     10: {"FA24": 0.50, "SP25": 0.65, "FA25": 0.55, "SP26": 0.70, "FA26": 0.45},  # Professional Development: on track
     7: {"FA24": 0.40, "SP25": 0.55, "FA25": 0.50, "SP26": 0.90, "FA26": 0.60},   # Consulting
     9: {"FA24": 0.60, "SP25": 0.45, "FA25": 0.50, "SP26": 0.70, "FA26": 0.50},   # Marketing (already over in Fall 2026)
@@ -61,15 +60,13 @@ TARGET_SHARE = {
 
 # (purpose, weight, vendor names). Invented vendors only.
 SPENDING = {
+    # Membership, which runs Passport since the club went to seven committees
+    # (2026-11-09; Passport was its own line 16 before).
     5: [
-        ("Social Events", 0.45, ["TOPGOLF GAINESVILLE", "BOWLING LANES GNV", "POTTERY STUDIO GNV"]),
-        ("Food & Drink", 0.35, ["ARCADE BAR GNV", "TACO SHACK GNV", "PIZZA PALACE GNV"]),
-        ("Misc.", 0.20, ["LAKE PARK ENTRY FEES", "PARTY SUPPLIES OUTLET"]),
-    ],
-    16: [
-        ("ISOM Passport", 0.55, ["PASSPORT STAMPS PRINT SHOP", "PASSPORT BOOKLETS PRINTING"]),
-        ("Food & Drink", 0.30, ["CULTURAL NIGHT CATERING", "WORLD FOODS MARKET GNV"]),
-        ("Social Events", 0.15, ["INTL STUDENT MIXER VENUE"]),
+        ("Social Events", 0.35, ["TOPGOLF GAINESVILLE", "BOWLING LANES GNV", "POTTERY STUDIO GNV", "INTL STUDENT MIXER VENUE"]),
+        ("Food & Drink", 0.30, ["ARCADE BAR GNV", "TACO SHACK GNV", "PIZZA PALACE GNV", "CULTURAL NIGHT CATERING"]),
+        ("ISOM Passport", 0.20, ["PASSPORT STAMPS PRINT SHOP", "PASSPORT BOOKLETS PRINTING"]),
+        ("Misc.", 0.15, ["LAKE PARK ENTRY FEES", "PARTY SUPPLIES OUTLET"]),
     ],
     10: [
         ("Professional Events", 0.50, ["INDUSTRY PANEL VENUE", "CAREER NIGHT HALL RENTAL"]),
@@ -100,7 +97,7 @@ INCOMING = [
     (10, "Sponsorship / Donation", "CORPORATE CAREER NIGHT SPONSOR DEPOSIT", 450.00, "FA26"),
     (5, "Refunded", "VENUE DEPOSIT REFUND", 75.00, "SP26"),
     (9, "Refunded", "PRINT ORDER REFUND", 42.50, "FA26"),
-    (16, "Sponsorship / Donation", "CULTURAL NIGHT SPONSOR DEPOSIT", 200.00, "FA26"),
+    (5, "Sponsorship / Donation", "CULTURAL NIGHT SPONSOR DEPOSIT", 200.00, "FA26"),
     (10, "Sponsorship / Donation", "CORPORATE WORKSHOP SPONSOR DEPOSIT", 250.00, "SP25"),
     (5, "Refunded", "VENUE DEPOSIT REFUND", 60.00, "FA24"),
     (9, "Refunded", "PRINT ORDER REFUND", 35.00, "FA25"),

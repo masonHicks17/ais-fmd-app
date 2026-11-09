@@ -314,4 +314,5 @@ def test_role_switcher_is_absent_in_production(monkeypatch):
         "auth.role_switcher()\n"
         "st.write('done')\n"
     ).run()
-    assert not app.sidebar.selectbox, "role switcher must not render in production"
+    # It renders in the profile menu now, not the sidebar, so look everywhere.
+    assert not app.selectbox, "role switcher must not render in production"

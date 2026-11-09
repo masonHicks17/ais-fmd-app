@@ -11,7 +11,7 @@ everything.
 The model here is role-based: every page declares the role it needs, and the
 check happens in one place. In production `current_user()` would read a Supabase
 session and look the role up in a `profiles` table with RLS enforcing it
-server-side; the sandbox lets you switch roles from the sidebar so the gating
+server-side; the sandbox lets you switch roles from the profile menu so the gating
 is actually testable without standing up an auth provider.
 
 The important part is the *shape*: authorisation is a property of the user, not
@@ -414,7 +414,7 @@ def require(required: Role) -> Identity:
         f"{ROLE_DESCRIPTIONS[required]}"
     )
     if _sandbox_open():
-        st.caption("Switch roles from the sidebar to explore this page.")
+        st.caption("Switch roles from the profile menu (top right) to explore this page.")
     st.stop()
     raise AssertionError("unreachable")  # pragma: no cover
 
@@ -483,6 +483,9 @@ def role_switcher() -> None:
     """
     Sandbox-only control for exercising the gating.
 
+    Renders into whatever container is active -- the profile menu, since the
+    sidebar was retired on 2026-11-08 (`shell.profile_menu`).
+
     Deliberately absent in production -- there, the role comes from the
     authenticated session and cannot be chosen by the client.
     """
@@ -490,11 +493,10 @@ def role_switcher() -> None:
         return
 
     identity = current_user()
-    st.sidebar.markdown("### Signed in as")
 
     demo_emails = _demo_profile_emails()
     if demo_emails:
-        st.sidebar.selectbox(
+        st.selectbox(
             "Demo sign-in",
             [_DEMO_NONE] + demo_emails,
             key="ais_demo_profile",
@@ -504,16 +506,18 @@ def role_switcher() -> None:
                 "lookup Google sign-in will use, so you see exactly what that person would."
             ),
         )
-    st.sidebar.caption(identity.email)
 
     options = list(Role)
-    chosen = st.sidebar.selectbox(
+    chosen = st.selectbox(
         "Role",
         options,
         index=options.index(identity.role),
         format_func=lambda role: role.label,
         key="ais_role_picker",
-        help="Sandbox only. In production this comes from the authenticated session.",
+        help=(
+            f"{ROLE_DESCRIPTIONS[identity.role]} "
+            "Sandbox only. In production this comes from the authenticated session."
+        ),
     )
     # A VP always belongs to a committee, so testing as one needs a committee
     # to be chosen too. Without this an Officer would have committee_id None.
@@ -523,7 +527,7 @@ def role_switcher() -> None:
 
         options_ids = list(BUDGETED_COMMITTEE_IDS)
         current = committee_id if committee_id in options_ids else options_ids[0]
-        committee_id = st.sidebar.selectbox(
+        committee_id = st.selectbox(
             "Committee",
             options_ids,
             index=options_ids.index(current),
@@ -541,4 +545,3 @@ def role_switcher() -> None:
         set_identity(Identity(email=identity.email, role=chosen, committee_id=committee_id))
         st.rerun()
 
-    st.sidebar.caption(ROLE_DESCRIPTIONS[chosen])

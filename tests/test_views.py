@@ -431,7 +431,7 @@ def test_review_queue_never_offers_a_row_that_already_has_a_committee(seeded_db,
 
 
 def test_treasury_tabs_all_render(seeded_db, use_db):
-    """Treasury is 467 lines doing upload, budgets, terms, export and locking."""
+    """Treasury does budgets, terms, export and locking (upload moved to Transactions)."""
     use_db(seeded_db)
     app = run_view(VIEWS / "Treasury.py")
     assert_clean(app, "Treasury on first render")
@@ -468,7 +468,7 @@ def test_planner_inputs_accept_edge_values(seeded_db, use_db):
 
 HUB_VIEWS = {
     "DuesHub.py": ("dues_hub", ["Dues", "Roster"]),
-    "TransactionsHub.py": ("transactions_hub", ["Transactions", "Review Queue"]),
+    "TransactionsHub.py": ("transactions_hub", ["Transactions", "Review Queue", "Upload statement"]),
     "AssistantHub.py": ("assistant_hub", ["Assistant", "Help"]),
     "AlertsHub.py": ("alerts_hub", ["Alerts & Reports", "Data Quality"]),
     "SettingsHub.py": ("settings_hub", ["Officer Access", "Audit Log"]),

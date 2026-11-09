@@ -20,8 +20,8 @@ from ais_fmd.domain.assistant import Context, Scope, run_tool
 
 ROOT = Path(__file__).resolve().parent.parent
 
-# Committee ids from config/categories.py: 9 Marketing, 15 Technology, 3 Transfers.
-MARKETING, TECHNOLOGY, TRANSFERS = 9, 15, 3
+# Committee ids from config/categories.py: 9 Marketing, 6 Operations, 3 Transfers.
+MARKETING, OPERATIONS, TRANSFERS = 9, 6, 3
 
 
 @pytest.fixture
@@ -36,7 +36,7 @@ def frames():
         ("2026-02-10", -100.00, MARKETING, "Spring flyers"),
         ("2026-09-03", -250.00, MARKETING, "Fall banner"),
         ("2026-10-02", -40.00, MARKETING, "Stickers"),
-        ("2026-10-05", -300.00, TECHNOLOGY, "Laptop stand"),
+        ("2026-10-05", -300.00, OPERATIONS, "Laptop stand"),
         ("2026-10-06", -500.00, TRANSFERS, "Move to savings"),
         ("2026-10-07", 65.00, 1, "Fall dues"),
         ("2026-11-20", -999.00, MARKETING, "Future-dated row"),
@@ -52,7 +52,7 @@ def frames():
     budgets = pd.DataFrame(
         [
             {"committeebudgetid": 1, "termid": "FA26", "committeeid": MARKETING, "budget_amount": 1000.0},
-            {"committeebudgetid": 2, "termid": "FA26", "committeeid": TECHNOLOGY, "budget_amount": 400.0},
+            {"committeebudgetid": 2, "termid": "FA26", "committeeid": OPERATIONS, "budget_amount": 400.0},
         ]
     )
     return transactions, budgets, terms
@@ -83,7 +83,7 @@ def test_transfers_are_not_spending(frames):
 
 
 def test_budget_remaining_for_one_committee(frames):
-    answer = run_tool("budget_status", {"committee": "Technology"}, ctx(frames))
+    answer = run_tool("budget_status", {"committee": "Operations"}, ctx(frames))
     assert answer.arguments["semester"] == "Fall 2026"
     assert "$100.00 left" in answer.text
 
@@ -100,7 +100,7 @@ def test_recent_charges_ignore_future_dated_rows(frames):
 
 
 def test_briefing_reports_pace(frames):
-    answer = run_tool("committee_briefing", {"committee": "Technology"}, ctx(frames))
+    answer = run_tool("committee_briefing", {"committee": "Operations"}, ctx(frames))
     assert "75% used" in answer.text
     assert "ahead of pace" in answer.text
 
@@ -131,8 +131,8 @@ def test_unknown_tool_name_from_a_model_is_not_run(frames):
 
 
 def test_committee_passed_to_a_tool_that_cannot_filter_is_not_dropped(frames):
-    """Otherwise 'Formal's income' would quietly come back as everyone's income."""
-    answer = run_tool("income_summary", {"committee": "Formal"}, ctx(frames))
+    """Otherwise 'Membership's income' would quietly come back as everyone's income."""
+    answer = run_tool("income_summary", {"committee": "Membership"}, ctx(frames))
     assert answer.status == assistant.UNKNOWN
     assert "$" not in answer.text
 
@@ -147,7 +147,7 @@ def test_scope_defaults_to_least_access():
 @pytest.mark.parametrize("tool", ["committee_spending", "budget_status", "committee_briefing",
                                   "recent_charges", "largest_transactions"])
 def test_officer_cannot_get_another_committee_whatever_the_model_asks(frames, tool):
-    answer = run_tool(tool, {"committee": "Technology"}, ctx(frames, "officer", "Marketing"))
+    answer = run_tool(tool, {"committee": "Operations"}, ctx(frames, "officer", "Marketing"))
     assert answer.status == assistant.REFUSED
     assert "$" not in answer.text
 
@@ -161,7 +161,7 @@ def test_officer_gets_org_totals_without_a_breakdown(frames):
     answer = run_tool("budget_status", {}, ctx(frames, "officer", "Marketing"))
     assert answer.status == assistant.ANSWERED
     assert answer.table is None
-    assert "Technology" not in answer.text
+    assert "Operations" not in answer.text
 
 
 def test_member_cannot_get_committee_figures(frames):
@@ -180,7 +180,7 @@ def test_unpaid_dues_names_are_treasurer_only(frames):
 
 
 def test_leak_check_catches_another_committee_in_a_table():
-    leaky = assistant.Answer(text="ok", table=pd.DataFrame({"Committee": ["Marketing", "Technology"]}))
+    leaky = assistant.Answer(text="ok", table=pd.DataFrame({"Committee": ["Marketing", "Operations"]}))
     assert assistant.names_other_committee(leaky, Scope("officer", "Marketing"))
 
 
@@ -295,7 +295,7 @@ def test_page_refuses_an_officer_asking_about_another_committee(seeded_db, use_d
     from ais_fmd import auth
 
     use_db(seeded_db)
-    app = _ask(auth.Role.OFFICER, "How much did Technology spend this semester?", committee_id=MARKETING)
+    app = _ask(auth.Role.OFFICER, "How much did Operations spend this semester?", committee_id=MARKETING)
     assert_clean(app, "Assistant refusing a Marketing officer")
     assert "I can only share figures for your own committee (Marketing)" in _page_text(app)
 

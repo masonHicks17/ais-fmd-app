@@ -180,7 +180,7 @@ def test_a_charge_that_moved_since_it_was_flagged_offers_no_move(seeded_db, use_
     backend = SqliteBackend()
     charge, flag_id = _flagged(backend, 7)
     purpose = snapshot(backend, charge)["purpose"]
-    backend.update_transactions([TransactionChange(charge, purpose, 12)], TREASURER)
+    backend.update_transactions([TransactionChange(charge, purpose, 10)], TREASURER)
 
     app = run_as(VIEWS / "ReviewQueue.py", auth.Role.TREASURER)
     assert_clean(app, "a flag whose charge has since moved")

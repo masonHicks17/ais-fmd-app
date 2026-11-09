@@ -175,9 +175,13 @@ def test_f6_committee_label_round_trips():
     The editor compared int 8 against the string "8 - Meeting Food", so the
     change test was always true and every row was rewritten on every save.
     """
-    for committee_id in (1, 5, 8, 18):
+    for committee_id in (1, 4, 5, 17):
         label = committee_label(committee_id)
         assert parse_committee_label(label) == committee_id
+    # A retired line (8 Meeting Food, 15 Technology) is labelled as the committee it
+    # folded into, so its label round-trips to that committee, not the old line.
+    for retired, committee_id in ((8, 5), (15, 6)):
+        assert parse_committee_label(committee_label(retired)) == committee_id
 
 
 def test_f6_parse_handles_blanks_and_garbage():
@@ -188,9 +192,13 @@ def test_f6_parse_handles_blanks_and_garbage():
 
 
 def test_f6_parse_accepts_bare_ids_and_names():
-    assert parse_committee_label("8") == 8
-    assert parse_committee_label(8) == 8
-    assert parse_committee_label("Meeting Food") == 8
+    assert parse_committee_label("4") == 4
+    assert parse_committee_label(4) == 4
+    assert parse_committee_label("President") == 4
+    # Retired line 8 (Meeting Food) folds into Membership (5), by id or by name.
+    assert parse_committee_label("8") == 5
+    assert parse_committee_label(8) == 5
+    assert parse_committee_label("Meeting Food") == 5
 
 
 # --- F13: account labels -----------------------------------------------------

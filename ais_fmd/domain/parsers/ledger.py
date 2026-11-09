@@ -28,7 +28,7 @@ import hashlib
 import re
 from dataclasses import dataclass, field
 
-from ...config.categories import COMMITTEE_BY_NAME
+from ...config.categories import LINE_BY_NAME as COMMITTEE_BY_NAME
 
 REQUIRED_COLUMNS = frozenset({"Date", "Amount", "Details", "Budget", "Purpose"})
 

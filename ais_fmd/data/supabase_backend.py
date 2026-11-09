@@ -546,6 +546,47 @@ class SupabaseBackend(Backend):
             result.error = f"{type(exc).__name__}: {exc}"
         return result
 
+    # --- Dues price dates. Needs migrations/015_dues_schedule.sql. ----------
+
+    def set_term_dues_schedule(
+        self,
+        term_id: str,
+        early_price: float | None,
+        late_price: float | None,
+        increase_date: str | None,
+        late_cutoff: str | None,
+        actor: str,
+    ) -> UpdateResult:
+        """Same contract as `SqliteBackend.set_term_dues_schedule`."""
+        fields = ("dues_early_price", "dues_late_price", "dues_increase_date", "dues_late_cutoff")
+        new = (early_price, late_price, increase_date, late_cutoff)
+        result = UpdateResult()
+        try:
+            existing = (
+                self._admin.table("terms").select(",".join(fields)).eq("TermID", term_id)
+                .maybe_single().execute()
+            )
+            if existing is None or existing.data is None:
+                result.error = f"Term {term_id} does not exist."
+                return result
+            old = tuple(existing.data.get(field) for field in fields)
+            if old == new:
+                result.unchanged = 1
+                return result
+            self._admin.table("terms").update(dict(zip(fields, new))).eq("TermID", term_id).execute()
+            self._audit(
+                transaction_id=None,
+                action="dues_schedule",
+                actor=actor,
+                field=term_id,
+                old_value=str(old),
+                new_value=str(new),
+            )
+            result.updated = 1
+        except Exception as exc:  # noqa: BLE001
+            result.error = f"{type(exc).__name__}: {exc}"
+        return result
+
     def set_transaction_sponsor_name(
         self, transaction_id: int, sponsor_name: str | None, actor: str
     ) -> UpdateResult:

@@ -69,7 +69,7 @@ def records(count: int = 3) -> list[dict]:
             "amount": -10.0 * day,
             "details": f"MERCHANT {day}",
             "account": "Wells Fargo",
-            "budget_category": 8,
+            "budget_category": 5,
             "purpose": "Meeting Food",
         }
         for day in range(1, count + 1)
@@ -149,7 +149,7 @@ def test_f6_only_genuinely_changed_rows_are_written(backend):
     target = int(stored.iloc[0]["transactionid"])
 
     result = backend.update_transactions(
-        [TransactionChange(transaction_id=target, purpose="Merch", budget_category=13)],
+        [TransactionChange(transaction_id=target, purpose="Merch", budget_category=9)],
         ACTOR,
     )
     assert result.updated == 1
@@ -157,12 +157,12 @@ def test_f6_only_genuinely_changed_rows_are_written(backend):
     refreshed = backend.fetch_transactions()
     row = refreshed[refreshed["transactionid"] == target].iloc[0]
     assert row["purpose"] == "Merch"
-    assert row["budget_category"] == 13
+    assert row["budget_category"] == 9
 
 
 def test_update_reports_missing_ids_rather_than_failing_silently(backend):
     result = backend.update_transactions(
-        [TransactionChange(transaction_id=999_999, purpose="Merch", budget_category=13)],
+        [TransactionChange(transaction_id=999_999, purpose="Merch", budget_category=9)],
         ACTOR,
     )
     assert result.failed == [999_999]
@@ -196,7 +196,7 @@ def test_updates_record_the_previous_value(backend):
     target = int(backend.fetch_transactions().iloc[0]["transactionid"])
 
     backend.update_transactions(
-        [TransactionChange(transaction_id=target, purpose="Merch", budget_category=13)], ACTOR
+        [TransactionChange(transaction_id=target, purpose="Merch", budget_category=9)], ACTOR
     )
     audit = backend.fetch_audit(100)
     purpose_change = audit[(audit["action"] == "update") & (audit["field"] == "purpose")]
@@ -216,21 +216,21 @@ def test_budget_upsert_does_not_delete_first(backend):
     with backend._connect() as connection:  # noqa: SLF001
         connection.executemany(
             "INSERT OR REPLACE INTO committees VALUES (?, ?, ?)",
-            [(8, "Meeting Food", "committee"), (13, "Merch", "committee")],
+            [(5, "Membership", "committee"), (9, "Marketing", "committee")],
         )
         connection.commit()
 
-    backend.upsert_budgets("FA25", {8: 1000.0, 13: 500.0}, ACTOR)
+    backend.upsert_budgets("FA25", {5: 1000.0, 9: 500.0}, ACTOR)
     first = backend.fetch_budgets()
     assert len(first) == 2
 
-    result = backend.upsert_budgets("FA25", {8: 1200.0, 13: 500.0}, ACTOR)
+    result = backend.upsert_budgets("FA25", {5: 1200.0, 9: 500.0}, ACTOR)
     assert result.updated == 1
     assert result.unchanged == 1
 
     second = backend.fetch_budgets()
     assert len(second) == 2
-    assert float(second[second["committeeid"] == 8].iloc[0]["budget_amount"]) == 1200.0
+    assert float(second[second["committeeid"] == 5].iloc[0]["budget_amount"]) == 1200.0
 
 
 def test_duplicate_term_is_rejected_with_a_message(backend):
@@ -245,7 +245,7 @@ def test_merchant_upsert_increments_hit_count(backend):
     rule = {
         "merchant_key": "publix",
         "canonical_name": "Publix",
-        "committee_id": 8,
+        "committee_id": 5,
         "purpose": "Meeting Food",
         "hit_count": 1,
     }

@@ -24,6 +24,10 @@ from tests.test_views import ROOT, TIMEOUT, VIEWS, assert_clean, seeded_db, use_
 
 OFFICER = auth.Role.OFFICER
 
+# A line no VP committee owns: President (4). It plays the part Passport (16)
+# used to -- the line next door that a VP roll-up must never pick up.
+OUTSIDE = 4
+
 
 def run_as(path, role, committee_id=None, **session) -> AppTest:
     app = AppTest.from_file(str(path), default_timeout=TIMEOUT)
@@ -40,13 +44,12 @@ def two_line_committee(monkeypatch):
     """
     A committee that owns two budget lines, for tests of the roll-up machinery.
 
-    No real committee owns more than one line right now (Passport is outside the
-    six committees), but the roll-up is kept for when one does, so it has to be
-    tested. For the length of one test this makes Membership own Membership and
-    Passport.
+    No real committee owns more than one line right now, but the roll-up is kept
+    for when one does, so it has to be tested. For the length of one test this
+    makes Membership own Membership and the President's line.
     """
     patched = tuple(
-        vp_committees.VpCommittee("Membership", (5, 16)) if c.title == "Membership" else c
+        vp_committees.VpCommittee("Membership", (5, OUTSIDE)) if c.title == "Membership" else c
         for c in vp_committees.VP_COMMITTEES
     )
     monkeypatch.setattr(vp_committees, "VP_COMMITTEES", patched)
@@ -62,13 +65,13 @@ FULL_PAGES = [
 
 
 def test_a_vp_gets_exactly_these_pages_with_the_assistant_last():
-    vp = auth.Identity(email="vp@x.edu", role=OFFICER, committee_id=8)
+    vp = auth.Identity(email="vp@x.edu", role=OFFICER, committee_id=5)
     titles = [page[1] for page in nav.visible_pages(vp, FULL_PAGES)]
     assert titles == ["My Committee", "My Transactions", "My Plan", "Assistant"]
 
 
 def test_a_vp_never_gets_a_page_that_shows_every_committee():
-    vp = auth.Identity(email="vp@x.edu", role=OFFICER, committee_id=8)
+    vp = auth.Identity(email="vp@x.edu", role=OFFICER, committee_id=5)
     paths = {page[0] for page in nav.visible_pages(vp, FULL_PAGES)}
     assert not paths & {page[0] for page in FULL_PAGES}
 
@@ -146,10 +149,10 @@ def test_an_officer_with_no_committee_sees_nothing(seeded_db, use_db):
 
 def test_a_vp_cannot_pick_another_committee_on_my_committee(seeded_db, use_db):
     use_db(seeded_db)
-    app = run_as(VIEWS / "Officer.py", OFFICER, 8)
-    assert_clean(app, "My Committee as the Meeting Food VP")
+    app = run_as(VIEWS / "Officer.py", OFFICER, 5)
+    assert_clean(app, "My Committee as the Membership VP")
     assert "Committee" not in [box.label for box in app.selectbox]
-    assert committee_name(8) in " ".join(block.value for block in app.markdown)
+    assert committee_name(5) in " ".join(block.value for block in app.markdown)
 
 
 def test_a_treasurer_can_still_pick_any_committee(seeded_db, use_db):
@@ -161,7 +164,7 @@ def test_a_treasurer_can_still_pick_any_committee(seeded_db, use_db):
 
 def test_home_points_a_vp_only_at_pages_they_have(seeded_db, use_db):
     use_db(seeded_db)
-    app = run_as(VIEWS / "Home.py", OFFICER, 8)
+    app = run_as(VIEWS / "Home.py", OFFICER, 5)
     assert_clean(app, "Home as a VP")
     # Home offers jump buttons to the org-wide pages; a VP's navigation does not
     # have those pages, so none of them may be drawn.
@@ -194,20 +197,20 @@ def test_finance_is_left_alone():
     assert vp_committees.budget_ids_for(2) == (2,)
 
 
-def test_membership_owns_only_its_own_line_and_passport_belongs_to_no_vp():
+def test_membership_owns_only_its_own_line_and_the_presidents_belongs_to_no_vp():
     assert vp_committees.budget_ids_for(5) == (5,)
-    assert vp_committees.for_committee_id(16) is None  # Passport: outside the committees
-    assert vp_committees.budget_ids_for(16) == (16,)
+    assert vp_committees.for_committee_id(OUTSIDE) is None  # President: no VP roll-up
+    assert vp_committees.budget_ids_for(OUTSIDE) == (OUTSIDE,)
 
 
 def test_a_line_resolves_to_the_committee_that_owns_it(two_line_committee):
-    assert vp_committees.for_committee_id(16).title == "Membership"
-    assert vp_committees.budget_ids_for(16) == vp_committees.budget_ids_for(5)
+    assert vp_committees.for_committee_id(OUTSIDE).title == "Membership"
+    assert vp_committees.budget_ids_for(OUTSIDE) == vp_committees.budget_ids_for(5)
 
 
 def test_an_unmapped_committee_falls_back_to_just_itself():
-    assert vp_committees.budget_ids_for(8) == (8,)  # Meeting Food
-    assert vp_committees.title_for(8) == committee_name(8)
+    assert vp_committees.budget_ids_for(4) == (4,)  # President
+    assert vp_committees.title_for(4) == committee_name(4)
     assert vp_committees.budget_ids_for(None) == ()
 
 
@@ -220,9 +223,9 @@ def _summary(rows):
 
 def test_rollup_adds_the_named_lines_and_ignores_the_rest():
     summary = _summary(
-        [("Membership", 1000.0, 400.0), ("Passport", 500.0, 350.0), ("Consulting", 900.0, 900.0)]
+        [("Membership", 1000.0, 400.0), ("President", 500.0, 350.0), ("Consulting", 900.0, 900.0)]
     )
-    total = vp_metrics.rollup(summary, ["Membership", "Passport"])
+    total = vp_metrics.rollup(summary, ["Membership", "President"])
     assert total["budget"] == 1500.0
     assert total["spent"] == 750.0
     assert total["remaining"] == 750.0
@@ -230,7 +233,7 @@ def test_rollup_adds_the_named_lines_and_ignores_the_rest():
 
 
 def test_rollup_with_no_budget_has_no_percent_rather_than_infinity():
-    total = vp_metrics.rollup(_summary([("Passport", 0.0, 25.0)]), ["Passport"])
+    total = vp_metrics.rollup(_summary([("President", 0.0, 25.0)]), ["President"])
     assert total["percent"] is None
 
 
@@ -268,9 +271,10 @@ def test_projection_is_a_straight_line_and_declines_to_guess_early():
 @pytest.fixture
 def membership_db(seeded_db, use_db):
     """
-    The seed books nothing to Membership (5) or Passport (16), so a leak of either
-    would go unnoticed. Re-book a few Meeting Food rows into each, on this test's
-    private copy, so there is something to leak and something to roll up.
+    The seed books plenty to Membership (5) but nothing to the President's line
+    (4), so a leak of the latter would go unnoticed. Re-book three of
+    Membership's Meeting Food rows onto it, on this test's private copy, so there
+    is something to leak and something to roll up.
     """
     import sqlite3
 
@@ -279,24 +283,24 @@ def membership_db(seeded_db, use_db):
         ids = [
             row[0]
             for row in connection.execute(
-                "SELECT transactionid FROM transactions WHERE budget_category = 8 "
-                "ORDER BY transaction_date DESC, transactionid LIMIT 6"
+                "SELECT transactionid FROM transactions WHERE budget_category = 5 "
+                "AND purpose = 'Meeting Food' ORDER BY transaction_date DESC, transactionid LIMIT 3"
             )
         ]
         connection.executemany(
             "UPDATE transactions SET budget_category = ? WHERE transactionid = ?",
-            [(5, ids[0]), (5, ids[1]), (5, ids[2]), (16, ids[3]), (16, ids[4]), (16, ids[5])],
+            [(OUTSIDE, transaction_id) for transaction_id in ids],
         )
     return path
 
 
-def test_the_fixture_really_put_three_rows_in_each_of_the_two_lines(membership_db):
-    membership, passport = _committee_rows(5), _committee_rows(16)
-    assert len(membership) == 3 and len(passport) == 3
-    assert not {row[2] for row in membership} & {row[2] for row in passport}
+def test_the_fixture_really_put_three_rows_on_the_second_line(membership_db):
+    membership, president = _committee_rows(5), _committee_rows(OUTSIDE)
+    assert len(membership) >= 3 and len(president) == 3
+    assert not {row[2] for row in membership} & {row[2] for row in president}
 
 
-# --- Passport is outside the committees ------------------------------------------
+# --- The President's line is outside the VP committees ----------------------------
 
 
 def _shown_rows(frame):
@@ -306,31 +310,31 @@ def _shown_rows(frame):
     )
 
 
-def test_the_membership_vp_sees_only_membership_rows_and_never_a_passport_charge(membership_db):
+def test_the_membership_vp_sees_only_membership_rows_and_never_a_presidents_charge(membership_db):
     app = run_as(VIEWS / "MyTransactions.py", OFFICER, 5, mytxn_semester="All")
     assert_clean(app, "My Transactions as the Membership VP")
     shown = app.dataframe[0].value
     assert "Line" not in shown.columns  # one line, so no per-line column
     assert _shown_rows(shown) == _committee_rows(5)
-    passport_charges = {row[2] for row in _committee_rows(16)}
-    assert passport_charges and not passport_charges & set(shown["Details"])
+    president_charges = {row[2] for row in _committee_rows(OUTSIDE)}
+    assert president_charges and not president_charges & set(shown["Details"])
 
 
-def test_the_membership_page_never_lists_a_passport_charge(membership_db):
+def test_the_membership_page_never_lists_a_presidents_charge(membership_db):
     app = run_as(VIEWS / "Officer.py", OFFICER, 5)
     assert_clean(app, "My Committee as the Membership VP")
-    passport_charges = {row[2] for row in _committee_rows(16)}
+    president_charges = {row[2] for row in _committee_rows(OUTSIDE)}
     for element in app.dataframe:
-        assert not passport_charges & set(element.value.get("Details", [])), "a Passport charge was listed"
+        assert not president_charges & set(element.value.get("Details", [])), "a President's charge was listed"
         assert "Budget line" not in element.value.columns  # a single line has no per-line table
 
 
-def test_a_profile_on_the_passport_line_sees_only_passport_rows(membership_db):
-    """Passport belongs to no committee, so it is just itself -- and never Membership."""
-    app = run_as(VIEWS / "MyTransactions.py", OFFICER, 16, mytxn_semester="All")
-    assert_clean(app, "My Transactions on the Passport line")
+def test_a_profile_on_the_presidents_line_sees_only_its_rows(membership_db):
+    """The President's line belongs to no VP committee, so it is just itself -- and never Membership."""
+    app = run_as(VIEWS / "MyTransactions.py", OFFICER, OUTSIDE, mytxn_semester="All")
+    assert_clean(app, "My Transactions on the President's line")
     shown = app.dataframe[0].value
-    assert _shown_rows(shown) == _committee_rows(16)
+    assert _shown_rows(shown) == _committee_rows(OUTSIDE)
     membership_charges = {row[2] for row in _committee_rows(5)}
     assert not membership_charges & set(shown["Details"])
 
@@ -345,16 +349,16 @@ def test_a_two_line_committee_sees_every_line_it_owns_and_nothing_else(membershi
     app = run_as(VIEWS / "MyTransactions.py", OFFICER, 5, mytxn_semester="All")
     assert_clean(app, "My Transactions for a two-line committee")
     shown = app.dataframe[0].value
-    assert set(shown["Line"]) == {"Membership", "Passport"}
+    assert set(shown["Line"]) == {"Membership", "President"}
     assert _shown_rows(shown) == _committee_rows(5)
 
 
 def test_the_budget_line_filter_narrows_to_one_line(membership_db, two_line_committee):
     app = run_as(
-        VIEWS / "MyTransactions.py", OFFICER, 5, mytxn_semester="All", mytxn_line="Passport"
+        VIEWS / "MyTransactions.py", OFFICER, 5, mytxn_semester="All", mytxn_line="President"
     )
-    assert_clean(app, "My Transactions filtered to Passport")
-    assert set(app.dataframe[0].value["Line"]) == {"Passport"}
+    assert_clean(app, "My Transactions filtered to President")
+    assert set(app.dataframe[0].value["Line"]) == {"President"}
 
 
 def test_my_committee_shows_a_by_line_table_for_a_two_line_committee(membership_db, two_line_committee):
@@ -365,7 +369,7 @@ def test_my_committee_shows_a_by_line_table_for_a_two_line_committee(membership_
         None,
     )
     assert by_line is not None, "no per-line table for a committee that owns two lines"
-    assert set(by_line["Budget line"]) == {"Membership", "Passport"}
+    assert set(by_line["Budget line"]) == {"Membership", "President"}
 
 
 def test_a_single_line_committee_gets_no_by_line_table(seeded_db, use_db):
@@ -378,7 +382,7 @@ def test_a_single_line_committee_gets_no_by_line_table(seeded_db, use_db):
 def test_either_line_of_a_two_line_committee_lands_on_the_same_page(membership_db, two_line_committee):
     """A profile may carry either line; both must land on the combined view."""
     as_first = run_as(VIEWS / "MyTransactions.py", OFFICER, 5, mytxn_semester="All")
-    as_second = run_as(VIEWS / "MyTransactions.py", OFFICER, 16, mytxn_semester="All")
+    as_second = run_as(VIEWS / "MyTransactions.py", OFFICER, OUTSIDE, mytxn_semester="All")
     assert as_first.dataframe[0].value.equals(as_second.dataframe[0].value)
 
 
@@ -422,7 +426,7 @@ def test_historical_adds_the_lines_per_semester_and_ignores_other_committees():
     budgets = pd.DataFrame(
         {
             "termid": ["T1", "T1", "T2", "T2"],
-            "committeeid": [5, 16, 5, 16],
+            "committeeid": [5, OUTSIDE, 5, OUTSIDE],
             "budget_amount": [100.0, 50.0, 200.0, 25.0],
         }
     )
@@ -432,10 +436,10 @@ def test_historical_adds_the_lines_per_semester_and_ignores_other_committees():
                 ["2025-09-01", "2025-10-01", "2026-02-01", "2026-02-02"]
             ),
             "amount": [-30.0, -20.0, -75.0, -999.0],
-            "budget_category": pd.array([5, 16, 5, 9], dtype="Int64"),  # 9 = Marketing
+            "budget_category": pd.array([5, OUTSIDE, 5, 9], dtype="Int64"),  # 9 = Marketing
         }
     )
-    out = vp_metrics.historical(transactions, budgets, terms, ["Membership", "Passport"])
+    out = vp_metrics.historical(transactions, budgets, terms, ["Membership", "President"])
     assert out["Semester"].tolist() == ["Fall 2025", "Spring 2026"]
     assert out["Budget"].tolist() == [150.0, 225.0]
     assert out["Spent"].tolist() == [50.0, 75.0]  # Marketing's 999 is not counted
@@ -443,7 +447,7 @@ def test_historical_adds_the_lines_per_semester_and_ignores_other_committees():
 
 
 def test_historical_with_nothing_to_show_is_an_empty_frame_with_the_right_columns():
-    out = vp_metrics.historical(pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), ["Passport"])
+    out = vp_metrics.historical(pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), ["President"])
     assert list(out.columns) == ["Semester", "Budget", "Spent", "% Spent"]
     assert out.empty
 
@@ -499,8 +503,8 @@ def test_pareto_rows_run_to_the_whole_of_spending():
 
 def test_my_committee_draws_the_spend_bar_and_pareto(seeded_db, use_db):
     use_db(seeded_db)
-    app = run_as(VIEWS / "Officer.py", OFFICER, 8)
-    assert_clean(app, "My Committee as the Meeting Food VP")
+    app = run_as(VIEWS / "Officer.py", OFFICER, 5)
+    assert_clean(app, "My Committee as the Membership VP")
     html = " ".join(block.value for block in app.markdown)
     assert "ais-vbar" in html and "of the budget spent" in html
     assert "ais-stack" in html and "Paid to" in html

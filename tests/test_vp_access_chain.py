@@ -137,25 +137,25 @@ def test_a_vp_reaches_exactly_their_own_pages_and_no_other_org_wide_page(members
 
 def test_a_treasurer_profile_keeps_the_full_app(membership_db):
     app = open_app(sign_in("treasurer@sandbox.local", role="treasurer", committee_id=None))
-    for page in ["Dashboard", "TransactionsHub", "Treasury", "Officer"]:
+    for page in ["Home", "TransactionsHub", "Treasury", "Officer"]:
         assert opens(app, page), f"{page} should open for the treasurer"
 
 
 def test_a_member_profile_gets_member_pages_but_no_committee_or_treasury_pages(membership_db):
     """Documents the cost of a wrong role: a VP saved as 'member' sees org-wide pages."""
     app = open_app(sign_in("member@sandbox.local", role="member", committee_id=None))
-    assert opens(app, "Dashboard")
+    assert opens(app, "Home")
     for page in ["Officer", "MyTransactions", "Treasury", "ReviewQueue"]:
         assert not opens(app, page), f"{page} opened for a plain member"
 
 
 # --- Whose rows appear -----------------------------------------------------------
 
-# Every VP committee's home line, plus Membership reached through its second line,
-# one unmapped committee, and Treasury.
+# Every VP committee's home line, plus the two committees no VP roll-up owns:
+# President and Treasury.
 PROFILE_COMMITTEES = [
     vp.budget_ids[0] for vp in vp_committees.VP_COMMITTEES
-] + [16, 8, 2]
+] + [4, 2]
 
 
 @pytest.mark.parametrize("committee_id", PROFILE_COMMITTEES)

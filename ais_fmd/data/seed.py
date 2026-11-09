@@ -24,6 +24,7 @@ from ..config.categories import (
     ACCOUNT_VENMO,
     ACCOUNT_WELLS_FARGO,
     BUDGETED_COMMITTEE_IDS,
+    current_booking,
     COMMITTEES,
 )
 from ..domain.categorize.predicates import COMMITTEE_PURPOSE
@@ -50,11 +51,26 @@ SEED_DUES_RATES = "35.00,52.50"
 # Tuned so a realistic mix results: most committees on track, one or two
 # approaching, and one genuinely over -- so the semantic chart colouring has
 # every state to show.
+# Per committee: the seven since 2026-11-09, each carrying the old lines that
+# folded into it (config/categories.RETIRED_LINES).
 BUDGET_BASELINE = {
-    2: 700.0, 4: 900.0, 5: 2200.0, 6: 1500.0, 7: 1200.0, 8: 2800.0,
-    9: 1400.0, 10: 2000.0, 12: 1600.0, 13: 2300.0, 14: 2100.0,
-    15: 1900.0, 16: 900.0, 18: 3200.0,
+    5: 6000.0,   # Membership: socials, GBM food, Passport, Formal, trips
+    7: 4000.0,   # Consulting: weekly meetings, client work, travel
+    9: 900.0,    # Marketing (+ Merch)
+    10: 900.0,   # Professional Development
+    6: 500.0,    # Operations (+ Technology)
+    2: 250.0,    # Treasury (+ Overhead): almost nothing
+    4: 150.0,    # President: almost nothing
 }
+# About $12,700 a term, against roughly $10,000-$14,000 of dues, sponsorship and
+# formal tickets coming in, so the bank holds steady instead of drifting.
+
+# Dues and reimbursements moved from Venmo to Zelle, a direct bank transfer,
+# starting Fall 2026; every later term works the same way.
+ZELLE_FROM = date(2026, 8, 1)
+
+# What each account held when the seeded history starts (Aug 2024).
+OPENING_BALANCES = {"Wells Fargo": 8000.0, "Venmo": 300.0}
 
 FOOD_MERCHANTS = [
     "PUBLIX SUPER MAR", "CHIPOTLE 1462", "PANDA EXPRESS 2201",
@@ -70,13 +86,11 @@ OTHER_MERCHANTS = [
     ("CANVA PTY LTD", 15, "Technology"),
     ("VISTAPRINT CORP", 13, "Merch"),
     ("CUSTOMINK LLC", 13, "Merch"),
-    ("MARRIOTT ORLANDO", 14, "Road Trip"),
-    ("DELTA AIR LINES", 14, "Road Trip"),
     ("EVENTBRITE CONF", 10, "Professional Development"),
     ("META PLATFORMS ADS", 9, "Marketing"),
     ("STICKER MULE", 9, "Marketing"),
-    ("UF REITZ UNION", 12, "Misc."),
-    ("STAPLES 00114", 12, "Misc."),
+    ("UF REITZ UNION", 5, "Social Events"),
+    ("STAPLES 00114", 6, "Misc."),
 ]
 
 MEMBER_NAMES = [
@@ -110,15 +124,32 @@ def build_records() -> list[dict]:
 
     for term_id, _semester, start, end in TERMS:
         # --- Dues income, concentrated in the first three weeks -------------
-        for _ in range(rng.randint(28, 46)):
+        # About 150 members pay in the fall and fewer in the spring (the real
+        # Fall 2026 roster has 163); 28-46 payers left the bank in the red.
+        for _ in range(rng.randint(120, 150) if term_id.startswith("FA") else rng.randint(70, 95)):
             day = start + timedelta(days=rng.randint(0, 21))
-            amount = rng.choice([35.00, 35.00, 35.00, 52.50])
             member = rng.choice(MEMBER_NAMES)
+            if start >= ZELLE_FROM:
+                # From Fall 2026 dues are paid by Zelle, straight into the bank
+                # (treasurer, 2026-11-09). Fall 2026's prices: $50 through
+                # Aug 19, then $65 (the membership form).
+                day = start + timedelta(days=rng.randint(-3, 21))
+                records.append(
+                    {
+                        "transaction_date": day.isoformat(),
+                        "amount": 50.00 if day <= date(2026, 8, 19) else 65.00,
+                        "details": f"ZELLE FROM {member.upper()} ON {day:%m/%d} REF # SEED{rng.randint(1000, 9999)}",
+                        "account": ACCOUNT_WELLS_FARGO,
+                        "_owner": (1, "Dues"),
+                    }
+                )
+                continue
+            amount = rng.choice([35.00, 35.00, 35.00, 52.50])
             records.append(
                 {
                     "transaction_date": day.isoformat(),
                     "amount": amount,
-                    "details": _venmo_details("Fall dues", member),
+                    "details": _venmo_details("Fall dues" if term_id.startswith("FA") else "Spring dues", member),
                     "account": ACCOUNT_VENMO,
                 }
             )
@@ -135,12 +166,13 @@ def build_records() -> list[dict]:
                         "amount": -round(rng.uniform(58, 240), 2),
                         "details": _wells_details(merchant, meeting_day),
                         "account": ACCOUNT_WELLS_FARGO,
+                        "_owner": (5, "Meeting Food"),
                     }
                 )
             meeting_day += timedelta(days=7)
 
         # --- Membership socials at bars ------------------------------------
-        for _ in range(rng.randint(4, 8)):
+        for _ in range(rng.randint(6, 10)):
             day = start + timedelta(days=rng.randint(10, (end - start).days - 5))
             merchant = rng.choice(BAR_MERCHANTS)
             records.append(
@@ -149,10 +181,38 @@ def build_records() -> list[dict]:
                     "amount": -round(rng.uniform(90, 420), 2),
                     "details": _wells_details(merchant, day),
                     "account": ACCOUNT_WELLS_FARGO,
+                    "_owner": (5, "Social Events"),
                 }
             )
 
-        # --- Consulting card ------------------------------------------------
+        # --- Consulting: weekly meeting food on the Consulting VPs' card -----
+        # Most spending is Membership's or Consulting's (treasurer, 2026-11-09),
+        # so Consulting gets its own weekly run, not just a Zoom bill.
+        consulting_day = _next_weekday(start, 0)
+        while consulting_day <= end:
+            if rng.random() < 0.75:
+                records.append(
+                    {
+                        "transaction_date": (consulting_day + timedelta(days=1)).isoformat(),
+                        "amount": -round(rng.uniform(60, 220), 2),
+                        "details": _wells_details(rng.choice(FOOD_MERCHANTS), consulting_day, card="4831"),
+                        "account": ACCOUNT_WELLS_FARGO,
+                        "_owner": (7, "Professional Development"),
+                    }
+                )
+            consulting_day += timedelta(days=7)
+        for merchant in rng.sample(["MARRIOTT ORLANDO", "DELTA AIR LINES", "EVENTBRITE CONF"], 2):
+            day = start + timedelta(days=rng.randint(20, (end - start).days - 10))
+            records.append(
+                {
+                    "transaction_date": day.isoformat(),
+                    "amount": -round(rng.uniform(250, 750), 2),
+                    "details": _wells_details(merchant, day, card="4831"),
+                    "account": ACCOUNT_WELLS_FARGO,
+                    "_owner": (7, "Professional Events"),
+                }
+            )
+
         for _ in range(rng.randint(3, 6)):
             day = start + timedelta(days=rng.randint(5, (end - start).days - 5))
             records.append(
@@ -161,20 +221,22 @@ def build_records() -> list[dict]:
                     "amount": -round(rng.uniform(40, 260), 2),
                     "details": _wells_details("ZOOM.US 888", day, card="8408"),
                     "account": ACCOUNT_WELLS_FARGO,
+                    "_owner": (7, "Professional Development"),
                 }
             )
 
         # --- Everything else -------------------------------------------------
-        for _ in range(rng.randint(18, 30)):
+        # Small lines: the other committees spend little.
+        for _ in range(rng.randint(8, 14)):
             merchant, committee_id, purpose = rng.choice(OTHER_MERCHANTS)
             day = start + timedelta(days=rng.randint(3, (end - start).days - 3))
             records.append(
                 {
                     "transaction_date": day.isoformat(),
-                    "amount": -round(rng.uniform(25, 700), 2),
+                    "amount": -round(rng.uniform(20, 260), 2),
                     "details": _wells_details(merchant, day),
                     "account": ACCOUNT_WELLS_FARGO,
-                    "_hint": (committee_id, purpose),
+                    "_owner": current_booking(committee_id, purpose),
                 }
             )
 
@@ -198,23 +260,75 @@ def build_records() -> list[dict]:
                 {
                     "transaction_date": day.isoformat(),
                     "amount": -round(rng.uniform(20, 180), 2),
-                    "details": _venmo_details("Reimbursement", "UF AIS", rng.choice(MEMBER_NAMES)),
-                    "account": ACCOUNT_VENMO,
+                    # From Fall 2026 on, Zelle from the bank, dues and reimbursements alike.
+                    **(
+                        {"details": f"ZELLE TO {rng.choice(MEMBER_NAMES).upper()} ON {day:%m/%d} REF # SEED{rng.randint(1000, 9999)}",
+                         "account": ACCOUNT_WELLS_FARGO}
+                        if start >= ZELLE_FROM
+                        else {"details": _venmo_details("Reimbursement", "UF AIS", rng.choice(MEMBER_NAMES)),
+                              "account": ACCOUNT_VENMO}
+                    ),
                 }
             )
 
         # --- Corporate sponsorship -------------------------------------------
-        for _ in range(rng.randint(1, 3)):
+        for _ in range(rng.randint(2, 3)):
             day = start + timedelta(days=rng.randint(10, 60))
             records.append(
                 {
                     "transaction_date": day.isoformat(),
-                    "amount": round(rng.uniform(750, 3500), 2),
+                    "amount": round(rng.uniform(1500, 3500), 2),
                     "details": f"DEPOSIT CORPORATE SPONSORSHIP REF{rng.randint(10000, 99999)}",
                     "account": ACCOUNT_WELLS_FARGO,
                     "_hint": (6, "Sponsorship / Donation"),
                 }
             )
+
+    # Nothing dated after today: a statement cannot show next month's spending.
+    today = date.today().isoformat()
+    records = [record for record in records if record["transaction_date"] <= today]
+
+    # --- Venmo cash-outs ----------------------------------------------------
+    # Dues and formal tickets land in Venmo, but every purchase is paid from
+    # Wells Fargo. Without moving the money across, Venmo piled up and Wells
+    # Fargo ran $22,000 into the red. At each month end, everything in Venmo
+    # not needed for next month's reimbursements goes to the bank: out of Venmo, into Wells Fargo,
+    # booked to Transfers on both sides so it is neither income nor spending.
+    from collections import defaultdict as _defaultdict
+
+    venmo_by_month: dict[str, float] = _defaultdict(float)
+    venmo_out: dict[str, float] = _defaultdict(float)
+    for record in records:
+        if record["account"] == ACCOUNT_VENMO:
+            venmo_by_month[record["transaction_date"][:7]] += float(record["amount"])
+            if record["amount"] < 0:
+                venmo_out[record["transaction_date"][:7]] -= float(record["amount"])
+    months = sorted(venmo_by_month)
+    venmo = OPENING_BALANCES["Venmo"]
+    for position, month in enumerate(months):
+        venmo += venmo_by_month[month]
+        # Leave enough behind to cover next month's reimbursements.
+        upcoming = venmo_out.get(months[position + 1], 0.0) if position + 1 < len(months) else 0.0
+        # Positive: cash the surplus out to the bank. Negative: the month ahead
+        # needs more than Venmo holds, so add money from the bank first.
+        amount = round(venmo - max(300.0, upcoming + 100.0), 2)
+        if abs(amount) < 1:
+            continue
+        year, mon = int(month[:4]), int(month[5:7])
+        day = date(year + (mon == 12), (mon % 12) + 1, 1) - timedelta(days=1)
+        outgoing = amount > 0
+        records.append({
+            "transaction_date": day.isoformat(), "amount": -amount,
+            "details": _venmo_details("Standard transfer to bank" if outgoing else "Add money from bank",
+                                      "UF AIS", "Wells Fargo"),
+            "account": ACCOUNT_VENMO, "_owner": (3, "Transfers"),
+        })
+        records.append({
+            "transaction_date": day.isoformat(), "amount": amount,
+            "details": f"{'VENMO CASHOUT' if outgoing else 'VENMO ADD MONEY'} REF{rng.randint(10000, 99999)}",
+            "account": ACCOUNT_WELLS_FARGO, "_owner": (3, "Transfers"),
+        })
+        venmo -= amount
 
     # --- Planted imperfections ---------------------------------------------
 
@@ -268,17 +382,23 @@ def _categorize_for_seed(records: list[dict]) -> list[dict]:
     from ..domain.categorize.pipeline import categorize_records
 
     hints = [record.pop("_hint", None) for record in records]
+    # Who the seed knows paid, whatever the categorizer makes of the merchant.
+    owners = [record.pop("_owner", None) for record in records]
     run = categorize_records(records)
 
     rng = random.Random(SEED + 1)
     out: list[dict] = []
-    for record, hint, classification in zip(records, hints, run.classifications):
+    for record, hint, owner, classification in zip(records, hints, owners, run.classifications):
         committee_id = classification.committee_id
         purpose = classification.purpose
+        if owner is not None:
+            committee_id, purpose = owner
         if committee_id is None and hint is not None:
             committee_id, purpose = hint
+        committee_id, purpose = current_booking(committee_id, purpose)
         # Leave roughly 12% deliberately unassigned.
-        if committee_id is not None and rng.random() < 0.12:
+        # (Never a transfer or dues: half a transfer left blank reads as spending.)
+        if committee_id is not None and committee_id not in (1, 3) and rng.random() < 0.12:
             committee_id, purpose = None, None
         out.append(
             {
@@ -305,7 +425,7 @@ def statement_balances(records: list[dict]) -> list[dict]:
         periods[(canonical, month)].append(float(record["amount"]))
 
     balances = []
-    running: dict[str, float] = defaultdict(lambda: 5000.0)
+    running: dict[str, float] = defaultdict(float, OPENING_BALANCES)
     for (account, month), amounts in sorted(periods.items(), key=lambda kv: (kv[0][0], kv[0][1])):
         year, mon = int(month[:4]), int(month[5:7])
         period_start = date(year, mon, 1)
@@ -410,6 +530,7 @@ def seed(backend: SqliteBackend | None = None, *, reset: bool = True) -> dict:
     reference_day = date(2025, 9, 16)
     rules = []
     for name, committee_id, purpose in known:
+        committee_id, purpose = current_booking(committee_id, purpose)
         key = merchant_key(_wells_details(name, reference_day))
         if key:
             rules.append(

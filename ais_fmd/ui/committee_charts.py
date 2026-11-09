@@ -108,7 +108,7 @@ def same_point_bars(frame: pd.DataFrame, typical: float | None, typical_label: s
     """
     One horizontal bar per term: how much of that term's budget was spent by the
     same point in the term. This term is the ink bar at the top, past terms the
-    quiet grey ones; each bar is labelled with its percentage, and a dashed line
+    quiet grey ones, and any term past 100% is orange; each bar is labelled with its percentage, and a dashed line
     marks what is usual, so the answer reads without the legend.
     """
     if frame is None or frame.empty:
@@ -118,7 +118,11 @@ def same_point_bars(frame: pd.DataFrame, typical: float | None, typical_label: s
     labels = [f"{term} (now)" if now else term for term, now in zip(rows["Term"], rows["Now"])]
     figure = go.Figure(go.Bar(
         y=labels, x=rows["Used"], orientation="h",
-        marker=dict(color=[p.ink if now else p.line_edge for now in rows["Now"]]),
+        # Over 100% is orange whichever term it is -- the one state that needs attention.
+        marker=dict(color=[
+            p.over if used > 100 else p.ink if now else p.line_edge
+            for used, now in zip(rows["Used"], rows["Now"])
+        ]),
         text=[f"{value:.0f}%" for value in rows["Used"]], textposition="outside", cliponaxis=False,
         hovertemplate="<b>%{y}</b><br>%{x:.0f}% of its budget by this point<extra></extra>",
         showlegend=False,

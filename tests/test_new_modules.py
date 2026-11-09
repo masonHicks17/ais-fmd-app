@@ -37,7 +37,7 @@ def transactions() -> pd.DataFrame:
         # Same member paying twice.
         ("2025-09-05", 35.00, zelle("AVA MITCHELL"), 1, "Dues"),
         # Not dues.
-        ("2025-09-10", -420.00, "PURCHASE AUTHORIZED ON 09/10 PUBLIX FL", 8, "Meeting Food"),
+        ("2025-09-10", -420.00, "PURCHASE AUTHORIZED ON 09/10 PUBLIX FL", 5, "Meeting Food"),
         ("2024-09-01", 35.00, zelle("PRIOR MEMBER"), 1, "Dues"),
     ]
     return pd.DataFrame(
@@ -130,13 +130,13 @@ def test_dues_on_empty_data(terms):
 
 def test_over_budget_raises_a_critical_alert(transactions, terms):
     budgets = pd.DataFrame(
-        {"termid": ["FA25"], "committeeid": [8], "budget_amount": [100.0]}
+        {"termid": ["FA25"], "committeeid": [5], "budget_amount": [100.0]}
     )
     alerts = alerts_domain.evaluate(transactions, budgets, terms, semester="Fall 2025")
     over = [a for a in alerts if a.code == "budget_over"]
     assert len(over) == 1
     assert over[0].severity == "critical"
-    assert "Meeting Food" in over[0].title
+    assert "Membership" in over[0].title
 
 
 def test_uncategorized_backlog_alert_scales_with_share(transactions, terms):
@@ -151,13 +151,13 @@ def test_no_alerts_when_everything_is_within_budget(terms):
             "transaction_date": pd.to_datetime(["2025-09-01"]),
             "amount": [-50.0],
             "details": ["PURCHASE AUTHORIZED ON 09/01 PUBLIX FL"],
-            "budget_category": pd.array([8], dtype="Int64"),
+            "budget_category": pd.array([5], dtype="Int64"),
             "purpose": ["Meeting Food"],
             "account": ["Wells Fargo"],
         }
     )
     budgets = pd.DataFrame(
-        {"termid": ["FA25"], "committeeid": [8], "budget_amount": [5000.0]}
+        {"termid": ["FA25"], "committeeid": [5], "budget_amount": [5000.0]}
     )
     alerts = alerts_domain.evaluate(clean, budgets, terms, semester="Fall 2025")
     assert not [a for a in alerts if a.severity == "critical"]
@@ -184,7 +184,7 @@ def test_unreconciled_period_raises_a_critical_alert(transactions, terms):
 
 
 def test_alerts_are_sorted_worst_first(transactions, terms):
-    budgets = pd.DataFrame({"termid": ["FA25"], "committeeid": [8], "budget_amount": [1.0]})
+    budgets = pd.DataFrame({"termid": ["FA25"], "committeeid": [5], "budget_amount": [1.0]})
     alerts = alerts_domain.evaluate(transactions, budgets, terms, semester="Fall 2025")
     ranks = [alert.rank for alert in alerts]
     assert ranks == sorted(ranks)
@@ -197,7 +197,7 @@ def test_alerts_on_empty_terms():
 # --- Board pack (M12) --------------------------------------------------------
 
 def test_board_pack_builds_and_narrates(transactions, terms):
-    budgets = pd.DataFrame({"termid": ["FA25"], "committeeid": [8], "budget_amount": [1000.0]})
+    budgets = pd.DataFrame({"termid": ["FA25"], "committeeid": [5], "budget_amount": [1000.0]})
     pack = report_domain.build(transactions, budgets, terms, "Fall 2025")
     assert pack.semester == "Fall 2025"
     assert pack.narrative
@@ -206,7 +206,7 @@ def test_board_pack_builds_and_narrates(transactions, terms):
 
 
 def test_board_pack_renders_valid_standalone_html(transactions, terms):
-    budgets = pd.DataFrame({"termid": ["FA25"], "committeeid": [8], "budget_amount": [1000.0]})
+    budgets = pd.DataFrame({"termid": ["FA25"], "committeeid": [5], "budget_amount": [1000.0]})
     pack = report_domain.build(transactions, budgets, terms, "Fall 2025")
     document = report_domain.to_html(pack)
 
@@ -225,7 +225,7 @@ def test_board_pack_escapes_description_text(terms):
             "transaction_date": pd.to_datetime(["2025-09-01"]),
             "amount": [-500.0],
             "details": ["<script>alert('x')</script>"],
-            "budget_category": pd.array([8], dtype="Int64"),
+            "budget_category": pd.array([5], dtype="Int64"),
             "purpose": ["Meeting Food"],
             "account": ["Wells Fargo"],
         }

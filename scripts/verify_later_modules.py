@@ -70,7 +70,7 @@ def main() -> int:
     backend.create_reimbursement(
         {
             "requester": "ava.mitchell@ufl.edu",
-            "committee_id": 8,
+            "committee_id": 5,
             "amount": amount,
             "description": "Groceries for GBM",
             "incurred_on": incurred.strftime("%Y-%m-%d"),
@@ -132,7 +132,7 @@ def main() -> int:
         before_purpose = before[before["transactionid"] == victim].iloc[0]["purpose"]
 
         result = backend.update_transactions(
-            [TransactionChange(transaction_id=victim, purpose="Merch", budget_category=13)], ACTOR
+            [TransactionChange(transaction_id=victim, purpose="Merch", budget_category=9)], ACTOR
         )
         after = backend.fetch_transactions()
         after_purpose = after[after["transactionid"] == victim].iloc[0]["purpose"]
@@ -158,7 +158,7 @@ def main() -> int:
                 "amount": -12.34,
                 "details": "SHOULD NOT IMPORT INTO A CLOSED TERM",
                 "account": "Wells Fargo",
-                "budget_category": 8,
+                "budget_category": 5,
                 "purpose": "Meeting Food",
             }
         ]

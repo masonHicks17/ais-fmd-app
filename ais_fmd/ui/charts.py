@@ -466,18 +466,30 @@ def sparkline(values: list[float], *, color: str | None = None) -> go.Figure:
 
 
 def trend_bars(df: pd.DataFrame) -> go.Figure:
-    """Budget against actual across semesters."""
+    """
+    Budget against actual across semesters. A semester that went over its
+    budget draws its actual bar in orange; theme.BUDGET is too close to the
+    canvas to read as a bar, so the budget uses the darker edge grey.
+    """
     if df.empty:
         return empty_figure("No historical data yet.")
+    p = theme.active()
+    over = df["Spent"] > df["Budget"]
     figure = go.Figure()
     figure.add_trace(go.Bar(
-        name="Budget", x=df["Semester"], y=df["Budget"], marker=dict(color=theme.BUDGET),
+        name="Budget", x=df["Semester"], y=df["Budget"], marker=dict(color=p.line_edge),
         hovertemplate="Budget: $%{y:,.2f}<extra></extra>",
     ))
     figure.add_trace(go.Bar(
-        name="Actual", x=df["Semester"], y=df["Spent"], marker=dict(color=theme.INK),
+        name="Actual", x=df["Semester"], y=df["Spent"],
+        marker=dict(color=[p.over if is_over else p.ink for is_over in over]),
         hovertemplate="Spent: $%{y:,.2f}<extra></extra>",
     ))
+    if over.any():
+        # Legend-only entry so the orange bars explain themselves.
+        figure.add_trace(go.Bar(
+            name="Over budget", x=[None], y=[None], marker=dict(color=p.over), hoverinfo="skip",
+        ))
     figure.update_layout(
         barmode="group", height=340,
         yaxis=dict(title=None, tickprefix="$", separatethousands=True), xaxis=dict(title=None),

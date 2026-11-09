@@ -18,6 +18,9 @@ from __future__ import annotations
 from .auth import Identity, Role
 
 DASHBOARD_PATH = "ais_fmd/views/Dashboard.py"
+# Dashboard was merged into Home on 2026-11-08; where it is absent, the
+# President's My Committee follows Home instead.
+HOME_PATH = "ais_fmd/views/Home.py"
 MY_COMMITTEE_PATH = "ais_fmd/views/Officer.py"
 
 # (path, title, icon, minimum role) -- the same shape as `PAGES` in app.py.
@@ -67,9 +70,10 @@ def _my_committee_after_dashboard(
     Dashboard, so My Committee sits directly under it. Only the order changes.
     """
     mine = [page for page in pages if page[0] == MY_COMMITTEE_PATH]
-    dashboard = [i for i, page in enumerate(pages) if page[0] == DASHBOARD_PATH]
-    if not mine or not dashboard:
+    paths = [page[0] for page in pages]
+    overview = DASHBOARD_PATH if DASHBOARD_PATH in paths else HOME_PATH
+    if not mine or overview not in paths:
         return pages
     rest = [page for page in pages if page[0] != MY_COMMITTEE_PATH]
-    at = next(i for i, page in enumerate(rest) if page[0] == DASHBOARD_PATH) + 1
+    at = next(i for i, page in enumerate(rest) if page[0] == overview) + 1
     return rest[:at] + mine + rest[at:]

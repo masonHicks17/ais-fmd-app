@@ -19,3 +19,8 @@ headless = true
 
 [browser]
 gatherUsageStats = false
+
+[client]
+# No Deploy button or ⋮ menu: the profile menu (top right) takes that corner,
+# and an operator has no use for Streamlit's developer options.
+toolbarMode = "minimal"

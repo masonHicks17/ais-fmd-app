@@ -277,7 +277,7 @@ class MerchantRule:
 
     def explain_split(self) -> str:
         """'7x Consulting, 3x Membership' -- what a treasurer needs to see."""
-        from ...config.categories import committee_name
+        from ...config.categories import line_name as committee_name
 
         parts = sorted(self.decisions.items(), key=lambda kv: (-kv[1], kv[0]))
         return ", ".join(f"{n}x {committee_name(c)}" for c, n in parts)

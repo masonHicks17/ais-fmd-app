@@ -1,14 +1,18 @@
 """
-Home: now and next.
+Home: now and next, then the term in detail.
 
-PEBBLE. Home only looks forward from today. Every chart answers a question a
-treasurer acts on this week; nothing here repeats a Dashboard chart.
+Home and Dashboard were merged on 2026-11-08. The top half looks forward from
+today -- every chart answers a question a treasurer acts on this week:
 
   Cash runway          will the balance stay above the reserve through term end?
   Spend pace           are we spending faster than the budget allows?
   Committees to watch  who is furthest ahead of the calendar, and when do they run out?
   Dues                 are members paying faster than the same term last year?
   Needs you            alerts and data-quality issues, one list, each opens its page
+
+Below it, "This term in detail" is the former Dashboard (ui/term_analysis.py):
+KPIs against past terms, every committee's budget, where the money went and
+net by week, with its own semester and committee pickers.
 """
 
 from __future__ import annotations
@@ -24,7 +28,7 @@ from ais_fmd.domain import dues as dues_domain
 from ais_fmd.domain import pace
 from ais_fmd.domain.money import format_currency
 from ais_fmd.domain.terms import default_semester, ordered_semesters, term_id_for_semester
-from ais_fmd.ui import charts, shell
+from ais_fmd.ui import charts, shell, term_analysis
 
 # Session keys of the hub switchers (see the *Hub.py views), so an action can
 # open a hub on the right view.
@@ -40,8 +44,11 @@ identity = auth.current_user()
 _OPENABLE = {page[0] for page in nav.VP_PAGES} if identity.committee_scoped else None
 
 
+_HERE = "ais_fmd/views/Home.py"
+
+
 def _can_open(page: str) -> bool:
-    return _OPENABLE is None or page in _OPENABLE
+    return page == _HERE or _OPENABLE is None or page in _OPENABLE
 
 
 shell.environment_banner()
@@ -147,10 +154,12 @@ with main:
         committees = pace.committee_pace(bundle.transactions, bundle.budgets, bundle.terms, clock)
         shell.heading("Committees to watch")
         shell.chart(charts.committee_pace(committees, clock, rows=3), key="home_watch")
-        if not committees.empty and _can_open("ais_fmd/views/Dashboard.py") and st.button(
-            f"All {len(committees)} committees", key="home_all_committees", icon=":material/arrow_forward:"
-        ):
-            st.switch_page("ais_fmd/views/Dashboard.py")
+        if not committees.empty:
+            # Same page now: a link down to the committee budgets section.
+            st.markdown(
+                f"[All {len(committees)} committees ↓](#{term_analysis.ANCHOR})",
+                unsafe_allow_html=False,
+            )
 
 # --- Dues --------------------------------------------------------------------
 
@@ -193,13 +202,13 @@ with side:
         ):
             code = alert.code.lower()
             if "budget" in code:
-                target = ("ais_fmd/views/Dashboard.py", None)
+                target = (_HERE, None)  # the committee budgets section below
             elif "backlog" in code or "uncateg" in code:
                 target = ("ais_fmd/views/TransactionsHub.py", "Review Queue")
             elif "reconcil" in code:
                 target = ("ais_fmd/views/Reconciliation.py", None)
             elif "stale" in code:
-                target = ("ais_fmd/views/Treasury.py", None)
+                target = ("ais_fmd/views/TransactionsHub.py", "Upload statement")
             else:
                 target = ("ais_fmd/views/AlertsHub.py", "Alerts & Reports")
             icon = {"critical": ":material/error:", "warning": ":material/warning:"}.get(
@@ -227,10 +236,21 @@ with side:
             shell.empty_state("Nothing needs you", "Alerts and data-quality checks are clear.")
         for index, (title, detail, icon, page, tab) in enumerate(items[:5]):
             with st.container(key=f"todo-{index}"):
-                if st.button(shell.money_safe(title), key=f"todo_button_{index}", icon=icon, type="tertiary"):
+                if page == _HERE:
+                    # Budget alerts: the chart that explains them is further down.
+                    glyph = icon.removeprefix(":material/").removesuffix(":")
+                    shell.html(
+                        f'<a class="ais-todo-link" href="#{term_analysis.ANCHOR}" target="_self">'
+                        f'<span class="material-symbols-rounded">{glyph}</span>{title}</a>'
+                    )
+                elif st.button(shell.money_safe(title), key=f"todo_button_{index}", icon=icon, type="tertiary"):
                     if tab and page in _HUB_KEYS:
                         st.session_state[_HUB_KEYS[page]] = tab
                     st.switch_page(page)
                 shell.say(detail, caption=True)
         if len(items) > 5:
             shell.say(f"{len(items) - 5} more on Alerts & Data Quality.", caption=True)
+
+# --- This term in detail (the former Dashboard) --------------------------------
+
+term_analysis.render(bundle, semesters)

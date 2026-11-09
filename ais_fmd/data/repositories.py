@@ -23,6 +23,7 @@ import pandas as pd
 import streamlit as st
 
 from .. import auth
+from ..config.categories import current_booking
 from .backend import Backend, TransactionChange, UpdateResult, UploadReceipt, get_backend
 
 
@@ -221,14 +222,32 @@ def _blocked_when_read_only(refusal):
 
 @_blocked_when_read_only(_upload_refusal)
 def insert_transactions(records: list[dict], file_name: str, actor: str) -> UploadReceipt:
+    # Retired budget lines (config/categories.RETIRED_LINES) are stored under
+    # the committee they folded into, whatever the categorizer called them.
+    records = [_current(record) for record in records]
     receipt = backend().insert_transactions(records, file_name, actor)
     if receipt.ok:
         invalidate()
     return receipt
 
 
+def _current(record: dict) -> dict:
+    if record.get("budget_category") is None or record.get("budget_category") != record.get("budget_category"):
+        return record
+    committee_id, purpose = current_booking(record.get("budget_category"), record.get("purpose"))
+    return {**record, "budget_category": committee_id, "purpose": purpose}
+
+
+def _current_change(change: TransactionChange) -> TransactionChange:
+    if change.budget_category is None:
+        return change
+    committee_id, purpose = current_booking(change.budget_category, change.purpose)
+    return TransactionChange(change.transaction_id, purpose=purpose, budget_category=committee_id)
+
+
 @_blocked_when_read_only(_update_refusal)
 def update_transactions(changes: list[TransactionChange], actor: str) -> UpdateResult:
+    changes = [_current_change(c) for c in changes]
     result = backend().update_transactions(changes, actor)
     if result.updated:
         invalidate()
@@ -333,6 +352,24 @@ def set_term_dues_rates(
 ) -> UpdateResult:
     """Record what a term charged for dues. Invalidates so the schedule rebuilds."""
     result = backend().set_term_dues_rates(term_id, rates, verified, actor)
+    if result.updated:
+        invalidate()
+    return result
+
+
+@_blocked_when_read_only(_update_refusal)
+def set_term_dues_schedule(
+    term_id: str,
+    early_price: float | None,
+    late_price: float | None,
+    increase_date: str | None,
+    late_cutoff: str | None,
+    actor: str,
+) -> UpdateResult:
+    """Record a term's dues price change and late cutoff (see domain/dues_checks.py)."""
+    result = backend().set_term_dues_schedule(
+        term_id, early_price, late_price, increase_date, late_cutoff, actor
+    )
     if result.updated:
         invalidate()
     return result
@@ -529,6 +566,58 @@ def replace_members(
 @_blocked_when_read_only(_update_refusal)
 def add_member_alias(term_id: str, match_key: str, alias_key: str, actor: str) -> UpdateResult:
     return backend().add_member_alias(term_id, match_key, alias_key, actor)
+
+
+# --- Events (domain/events.py) ---------------------------------------------------
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _events(version: int, term_id: str | None) -> pd.DataFrame:
+    return backend().fetch_events(term_id)
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _event_links(version: int) -> pd.DataFrame:
+    return backend().fetch_event_links()
+
+
+def load_events(term_id: str | None = None) -> pd.DataFrame:
+    return _events(data_version(), term_id)
+
+
+def load_event_links() -> pd.DataFrame:
+    return _event_links(data_version())
+
+
+@_blocked_when_read_only(_update_refusal)
+def sync_events(events: list[dict], actor: str) -> UpdateResult:
+    result = backend().sync_events(events, actor)
+    if result.updated or result.unchanged:
+        invalidate()
+    return result
+
+
+@_blocked_when_read_only(_update_refusal)
+def set_event_attendance(event_id: int, attendance: int | None, source: str, actor: str) -> UpdateResult:
+    result = backend().set_event_attendance(event_id, attendance, source, actor)
+    if result.updated:
+        invalidate()
+    return result
+
+
+@_blocked_when_read_only(_update_refusal)
+def link_transactions_to_events(pairs: list[tuple[int, int]], actor: str) -> UpdateResult:
+    result = backend().link_transactions_to_events(pairs, actor)
+    if result.updated:
+        invalidate()
+    return result
+
+
+@_blocked_when_read_only(_update_refusal)
+def unlink_transaction_from_event(transaction_id: int, actor: str) -> UpdateResult:
+    result = backend().unlink_transaction_from_event(transaction_id, actor)
+    if result.updated:
+        invalidate()
+    return result
 
 
 # --- Committee plans and budget requests --------------------------------------

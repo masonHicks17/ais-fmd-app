@@ -82,7 +82,7 @@ Roughly 20 minutes if nothing is unusual.
 the full statement period, not a filtered view — the importer rejects duplicates,
 so overlapping ranges are safe and gaps are not.
 
-**2. Import them.** Treasury → Upload statement. The parser validates the file's
+**2. Import them.** Transactions → Upload statement. The parser validates the file's
 shape before reading it and will refuse a file whose layout it does not
 recognise, rather than importing nonsense. Read any warning it shows.
 

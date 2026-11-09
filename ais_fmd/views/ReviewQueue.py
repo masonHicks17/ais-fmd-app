@@ -47,7 +47,7 @@ shell.page_header(
 transactions = repo.load_transactions()
 
 if transactions.empty:
-    shell.empty_state("No transactions yet", "Upload a statement from the Treasury page.")
+    shell.empty_state("No transactions yet", "Upload a statement from Transactions → Upload statement.")
     st.stop()
 
 # Charges a VP has disputed ("This isn't ours"). One call; the panel lives in

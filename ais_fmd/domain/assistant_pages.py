@@ -31,12 +31,14 @@ class PageInfo:
     min_role: str       # lowest role that can open it
     shows: str          # one line: what is on the page
     keywords: tuple[str, ...]
-    under_more: bool = False  # nav entry sits in the "More" menu
+    # Opened from the profile menu (top right) rather than the top bar. Was the
+    # "More" menu until 2026-11-08.
+    under_more: bool = False
 
     @property
     def path(self) -> str:
         """How to get there, as the user would click it."""
-        steps = (["More"] if self.under_more else []) + [self.nav]
+        steps = (["Profile menu (top right)"] if self.under_more else []) + [self.nav]
         if self.tab and self.tab != self.nav:
             steps.append(self.tab)
         return " → ".join(steps)
@@ -57,13 +59,10 @@ VP_PAGE_NAMES = frozenset({"My Committee", "My Transactions", "My Plan", "Assist
 PAGES: tuple[PageInfo, ...] = (
     PageInfo(
         "Home", "Home", None, "member",
-        "where the term stands at a glance: week of the semester and headline figures",
-        ("home", "overview", "start", "glance", "summary of the semester"),
-    ),
-    PageInfo(
-        "Dashboard", "Dashboard", None, "member",
-        "income, spending and budget against actual for a semester, with charts",
-        ("dashboard", "chart", "graph", "trend", "budget vs actual", "income vs expenses", "spending by committee"),
+        "where the term stands: cash runway, spend pace, dues and what needs attention; "
+        "below it, income, spending and budget against actual for any semester, with charts",
+        ("home", "overview", "start", "glance", "summary of the semester",
+         "dashboard", "chart", "graph", "trend", "budget vs actual", "income vs expenses", "spending by committee"),
     ),
     PageInfo(
         "Dues", "Dues", "Dues", "member",
@@ -84,6 +83,18 @@ PAGES: tuple[PageInfo, ...] = (
         "Review Queue", "Transactions", "Review Queue", "treasurer",
         "transactions the categorizer could not resolve, waiting for a person to decide",
         ("review queue", "uncategorized", "uncategorised", "needs review", "categorize", "categorise", "miscategorized"),
+    ),
+    PageInfo(
+        "Upload statement", "Transactions", "Upload statement", "treasurer",
+        "import a Venmo or Wells Fargo statement into the ledger",
+        ("upload", "upload a bank statement", "upload a statement", "upload statements", "import statement"),
+    ),
+    PageInfo(
+        "Events", "Events", None, "member",
+        "the club calendar synced from the event schedule, with attendance and what each event cost; "
+        "purchases that may belong to an event",
+        ("event", "events", "calendar", "schedule", "gbm", "attendance", "what did the event cost",
+         "event cost", "social", "tailgate", "google calendar"),
     ),
     PageInfo(
         "Planner", "Planner", None, "treasurer",
@@ -135,9 +146,8 @@ PAGES: tuple[PageInfo, ...] = (
     ),
     PageInfo(
         "Treasury", "Treasury", None, "treasurer",
-        "statement uploads, budget allocations, and academic terms",
-        ("upload", "upload a bank statement", "upload a statement", "upload statements", "import statement", "set budget", "allocate", "allocation", "terms", "semester dates", "dues rates"),
-        under_more=True,
+        "budget allocations, academic terms, and exports",
+        ("set budget", "allocate", "allocation", "terms", "semester dates", "dues rates", "export"),
     ),
     PageInfo(
         "Audit Log", "Settings", "Audit Log", "treasurer",

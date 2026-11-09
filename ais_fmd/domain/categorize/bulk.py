@@ -37,7 +37,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from decimal import Decimal
 
-from ...config.categories import committee_name
+from ...config.categories import line_name as committee_name
 from ..money import parse_amount
 from .merchants import merchant_key
 from .predicates import (

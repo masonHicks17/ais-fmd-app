@@ -648,6 +648,58 @@ class Reconciliation:
         }
 
 
+def _text(value: object) -> str:
+    """
+    A DB column value as a string, NULL-safe.
+
+    `value or ""` does not fall back on a pandas NaN -- NaN is truthy, so it
+    returns the NaN, and a caller wrapping that in `str()` gets the literal
+    string "nan" rendered on the page instead of a blank. Every optional TEXT
+    column read from SQLite needs this, not just `value or ""`.
+    """
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return ""
+    return str(value)
+
+
+def members_from_rows(stored: pd.DataFrame) -> list[Member]:
+    """Members from stored roster rows (`repositories.load_members`)."""
+    members = []
+    for row in stored.to_dict("records"):
+        alt_keys = tuple(
+            part.strip() for part in _text(row.get("alt_keys")).split(",") if part.strip()
+        )
+        members.append(
+            Member(
+                full_name=_text(row.get("full_name")),
+                match_key=_text(row.get("match_key")),
+                alt_keys=alt_keys,
+                preferred_name=_text(row.get("preferred_name")),
+                claims_paid=bool(row.get("claims_paid") or 0),
+                email=_text(row.get("email")),
+                ufid=_text(row.get("ufid")),
+            )
+        )
+    return members
+
+
+def semester_dues_rows(transactions: pd.DataFrame, terms: pd.DataFrame, semester: str) -> pd.DataFrame:
+    """The dues payments for `semester`, including those paid before it began."""
+    from .dues import dues_transactions, schedule_from_terms
+    from .terms import attach_semester, dues_terms
+
+    rows = dues_transactions(transactions, schedule_from_terms(terms))
+    if rows.empty:
+        return rows
+    # `dues_terms`, not the plain term dates: dues for a term start arriving
+    # before its first day (Fall 2026's on 08/12, term start 08/15). Tagging by
+    # the plain dates dropped those payments and showed their payers as unpaid,
+    # while the Dues page's Collected figure -- which uses `dues_terms` -- counted
+    # them. Found 2026-11-08.
+    tagged = attach_semester(rows, dues_terms(terms))
+    return tagged[tagged["Semester"].astype(str) == str(semester)]
+
+
 def reconcile(dues_rows: pd.DataFrame, members: list[Member]) -> Reconciliation:
     """Match every dues payment to the roster and report both directions."""
     return Reconciliation(

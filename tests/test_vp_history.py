@@ -136,7 +136,7 @@ def test_a_committee_that_owns_two_lines_is_added_together():
     budgets = pd.DataFrame(
         {
             "termid": ["T1", "T1", "T3", "T3"],
-            "committeeid": [5, 16, 5, 16],
+            "committeeid": [5, 4, 5, 4],
             "budget_amount": [600.0, 400.0, 600.0, 400.0],
         }
     )
@@ -144,10 +144,10 @@ def test_a_committee_that_owns_two_lines_is_added_together():
         {
             "transaction_date": pd.to_datetime(["2025-09-01", "2025-09-02", "2026-09-01"]),
             "amount": [-60.0, -40.0, -250.0],
-            "budget_category": pd.array([5, 16, 16], dtype="Int64"),
+            "budget_category": pd.array([5, 4, 4], dtype="Int64"),
         }
     )
-    result = compare(df_transactions=transactions, df_budgets=budgets, line_ids=(5, 16))
+    result = compare(df_transactions=transactions, df_budgets=budgets, line_ids=(5, 4))
     assert result.table["Spent by this point"].tolist() == [100.0]
     assert result.table["Of its budget"].tolist() == pytest.approx([10.0])
     assert result.current_percent == pytest.approx(25.0)

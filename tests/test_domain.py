@@ -141,7 +141,7 @@ def test_budget_status_classification(terms):
             "transaction_date": pd.to_datetime(["2025-09-01", "2025-09-02", "2025-09-03"]),
             "amount": [-1200.0, -90.0, -50.0],
             "details": ["a", "b", "c"],
-            "budget_category": pd.array([9, 13, 15], dtype="Int64"),
+            "budget_category": pd.array([9, 5, 6], dtype="Int64"),
             "purpose": ["Marketing", "Merch", "Technology"],
             "account": ["Wells Fargo"] * 3,
         }
@@ -149,15 +149,15 @@ def test_budget_status_classification(terms):
     budgets = pd.DataFrame(
         {
             "termid": ["FA25", "FA25", "FA25"],
-            "committeeid": [9, 13, 15],
+            "committeeid": [9, 5, 6],
             "budget_amount": [1000.0, 100.0, 1000.0],
         }
     )
     summary = budget_vs_actual(transactions, budgets, terms, "Fall 2025")
     by_name = dict(zip(summary["Committee_Name"], summary["Status"]))
     assert by_name["Marketing"] == "over"
-    assert by_name["Merch"] == "approaching"
-    assert by_name["Technology"] == "on track"
+    assert by_name["Membership"] == "approaching"
+    assert by_name["Operations"] == "on track"
 
 
 # --- Parsers -----------------------------------------------------------------

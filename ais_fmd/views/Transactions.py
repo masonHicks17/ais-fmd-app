@@ -26,6 +26,8 @@ from ais_fmd.config.categories import (
 )
 from ais_fmd.data import repositories as repo
 from ais_fmd.data.backend import TransactionChange
+from ais_fmd.domain import events as events_domain
+from ais_fmd.domain.details import tidy
 from ais_fmd.domain.terms import attach_semester, ordered_semesters
 from ais_fmd.ui import shell
 
@@ -44,7 +46,7 @@ bundle = repo.load_bundle()
 semesters = ordered_semesters(bundle.terms)
 
 if bundle.transactions.empty:
-    shell.empty_state("No transactions yet", "Upload a statement from the Treasury page.")
+    shell.empty_state("No transactions yet", "Upload a statement from Transactions → Upload statement.")
     st.stop()
 
 # --- Filters -----------------------------------------------------------------
@@ -81,7 +83,13 @@ if search.strip():
 
 view = view.sort_values("transaction_date", ascending=False).reset_index(drop=True)
 
-st.caption(f"{len(view):,} of {len(tagged):,} transactions match.")
+count_column, raw_column = st.columns([4, 1])
+with count_column:
+    st.caption(f"{len(view):,} of {len(tagged):,} transactions match.")
+with raw_column:
+    # Details are trimmed for reading (domain/details.py); the bank's own text
+    # is still what is stored and searched.
+    show_raw = st.toggle("Bank text", key="txn_raw_details", help="Show the description exactly as the bank wrote it.")
 
 if view.empty:
     shell.empty_state("Nothing matches these filters", "Try widening the search.")
@@ -101,18 +109,55 @@ if len(view) > PAGE_SIZE:
     )
     view = view.iloc[(page - 1) * PAGE_SIZE : page * PAGE_SIZE].reset_index(drop=True)
 
+# --- Events (domain/events.py) -----------------------------------------------
+#
+# A confirmed link shows as "Confirmed". Anything else is the matcher's guess
+# and shows its confidence (High / Medium / Low) until a treasurer ticks
+# Confirm, so a guess is never mistaken for a fact.
+
+all_events = repo.load_events()
+event_links = repo.load_event_links()
+event_title = (
+    {int(r.event_id): f"{r.title} ({pd.to_datetime(r.event_date):%b %d})" for r in all_events.itertuples()}
+    if not all_events.empty else {}
+)
+confirmed_event = (
+    dict(zip(event_links["transaction_id"].astype(int), event_links["event_id"].astype(int)))
+    if not event_links.empty else {}
+)
+suggested_event = {
+    s.transaction_id: s
+    for s in events_domain.suggest_links(view, all_events, event_links, repo.load_committees())
+}
+
+
+def _event_cells(transaction_id: int) -> tuple[str, str]:
+    if transaction_id in confirmed_event:
+        return event_title.get(confirmed_event[transaction_id], ""), "Confirmed"
+    suggestion = suggested_event.get(transaction_id)
+    if suggestion:
+        return event_title.get(suggestion.event_id, ""), suggestion.confidence
+    return "", ""
+
+
+event_cells = [_event_cells(int(t)) for t in view["transactionid"]]
+
 # The frame the editor renders, and the typed original it is diffed against.
 editable = pd.DataFrame(
     {
         "transactionid": view["transactionid"],
         "Date": pd.to_datetime(view["transaction_date"]).dt.date,
         "Amount": view["amount"],
-        "Details": view["details"],
+        "Details": view["details"] if show_raw else view["details"].map(tidy),
         "Committee": [committee_label(value) for value in view["budget_category"]],
         "Purpose": view["purpose"].fillna(""),
-        "Account": view["account"].fillna(""),
+        "Event": [cell[0] for cell in event_cells],
+        "Match": [cell[1] for cell in event_cells],
+        "Confirm": False,
     }
 )
+if not can_edit:
+    editable = editable.drop(columns="Confirm")
 
 def clean_text(value: object) -> str | None:
     """
@@ -141,7 +186,7 @@ edited = st.data_editor(
     width="stretch",
     hide_index=True,
     disabled=(
-        ["transactionid", "Date", "Amount", "Details", "Account"]
+        ["transactionid", "Date", "Amount", "Details", "Event", "Match"]
         if can_edit
         else list(editable.columns)
     ),
@@ -149,14 +194,23 @@ edited = st.data_editor(
         "transactionid": None,  # carried for identity, not shown
         "Date": st.column_config.DateColumn("Date", format="YYYY-MM-DD"),
         "Amount": st.column_config.NumberColumn("Amount", format="$%.2f"),
-        "Details": st.column_config.TextColumn("Details", width="large"),
+        "Details": st.column_config.TextColumn("Details", width="medium"),
         "Committee": st.column_config.SelectboxColumn(
             "Committee", options=committee_dropdown_options(), required=False
         ),
         "Purpose": st.column_config.SelectboxColumn(
             "Purpose", options=purpose_dropdown_options(), required=False
         ),
-        "Account": st.column_config.TextColumn("Account"),
+        "Event": st.column_config.TextColumn(
+            "Event", width="medium", help="The event this purchase paid for. Unconfirmed until Match says Confirmed."
+        ),
+        "Match": st.column_config.TextColumn(
+            "Match", width="small",
+            help="Confirmed, or how sure the matcher is: High, Medium or Low. See Events for why.",
+        ),
+        "Confirm": st.column_config.CheckboxColumn(
+            "Confirm", width="small", help="Tick to confirm the suggested event, then Save.",
+        ),
     },
 )
 
@@ -187,21 +241,41 @@ for _, row in edited.iterrows():
             )
         )
 
+# Ticked Confirm on a row with an unconfirmed suggestion. Ticks on confirmed
+# rows, or rows with no suggestion, have nothing to confirm and are ignored.
+confirmations = [
+    (int(row["transactionid"]), suggested_event[int(row["transactionid"])].event_id)
+    for _, row in edited.iterrows()
+    if row["Confirm"] and int(row["transactionid"]) in suggested_event
+]
+pending = len(changes) + len(confirmations)
+
 save_column, status_column = st.columns([1, 4])
 with save_column:
     save_clicked = st.button(
-        f"Save {len(changes)} change{'s' if len(changes) != 1 else ''}",
+        f"Save {pending} change{'s' if pending != 1 else ''}",
         type="primary",
-        disabled=not changes,
+        disabled=not pending,
     )
 with status_column:
-    if changes:
-        st.caption(
-            f"{len(changes)} row(s) differ from what is stored. "
-            f"Unchanged rows are not written."
-        )
+    if pending:
+        parts = []
+        if changes:
+            parts.append(f"{len(changes)} row(s) differ from what is stored")
+        if confirmations:
+            parts.append(f"{len(confirmations)} event match(es) to confirm")
+        st.caption("; ".join(parts) + ". Unchanged rows are not written.")
     else:
         st.caption("No changes staged.")
+
+if save_clicked and confirmations:
+    linked = repo.link_transactions_to_events(confirmations, identity.email)
+    if linked.error:
+        shell.error_state("Could not confirm event matches", linked.error)
+    elif not changes:
+        st.toast(f"Confirmed {linked.updated} event match(es).")
+        st.session_state.pop("txn_editor", None)  # clear the ticks, which are now saved
+        st.rerun()
 
 if save_clicked and changes:
     result = repo.update_transactions(changes, identity.email)
@@ -217,6 +291,7 @@ if save_clicked and changes:
             f"Saved {result.updated} change(s)."
             + (f" {result.unchanged} row(s) were already up to date." if result.unchanged else "")
         )
+        st.session_state.pop("txn_editor", None)
         st.rerun()
 
 with st.expander("Why this page no longer rewrites every row"):

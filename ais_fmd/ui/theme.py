@@ -180,6 +180,46 @@ APP_CSS = f"""
   header [data-testid="stTopNavLink"][aria-current="page"] {{ background: {INK}; color: #fff; }}
   header [data-testid="stTopNavLink"][aria-current="page"] * {{ color: #fff !important; }}
 
+  /* Profile menu (shell.profile_menu): rendered in the page body, pinned over
+     the right of the fixed header. toolbarMode is "minimal" in
+     .streamlit/config.toml, which removes Streamlit's Deploy button and ⋮ menu,
+     so nothing else sits there. */
+  .st-key-ais-profile {{
+    position: fixed; top: 8px; right: 16px; z-index: 999991; width: auto !important;
+  }}
+  /* Leave room for it: the nav moves pages into "N more" before reaching it.
+     With no toolbar the header justifies the nav to the right; order and
+     margin put it back on the left. */
+  header [data-testid="stTopNav"] {{
+    order: -1; margin-right: auto; max-width: calc(100vw - 180px);
+  }}
+  .st-key-ais-profile button {{
+    border-radius: 999px; height: 44px; padding: 0 16px 0 10px;
+    background: {SURFACE}; border: 1px solid {GRID}; color: {INK}; font-weight: 500;
+  }}
+  .st-key-ais-profile button:hover {{ background: {SUBTLE}; border-color: {GRID}; }}
+  .st-key-ais-profile [data-testid="stIconMaterial"] {{ font-size: 1.5rem; }}
+  /* The menu itself: narrow and tight. The body is portalled out of
+     .st-key-ais-profile, so it is found by what it contains. */
+  [data-testid="stPopoverBody"]:has(.ais-profile-who) {{
+    width: 260px !important; min-width: 260px !important; padding: 12px 14px !important;
+  }}
+  [data-testid="stPopoverBody"]:has(.ais-profile-who) [data-testid="stVerticalBlock"] {{ gap: 6px; }}
+  [data-testid="stPopoverBody"]:has(.ais-profile-who) hr.ais-rule {{
+    margin: 6px 0 !important; border-top: 1px solid {GRID} !important;
+  }}
+  [data-testid="stPopoverBody"]:has(.ais-profile-who) [data-testid="stPageLink"] a {{ padding: 4px 6px; }}
+  [data-testid="stPopoverBody"]:has(.ais-profile-who) label {{ min-height: 0; margin-bottom: 0; }}
+  [data-testid="stPopoverBody"]:has(.ais-profile-who) label p {{ font-size: .8rem; color: {INK_SOFT}; }}
+  [data-testid="stPopoverBody"]:has(.ais-profile-who) button {{ min-height: 34px; padding: 4px 10px; }}
+  .ais-profile-who {{
+    display: flex; flex-direction: column; gap: 0; padding: 0; line-height: 1.3;
+    margin-bottom: 1rem;  /* offsets Streamlit's -1rem under markdown blocks */
+  }}
+  .ais-profile-who b {{ overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }}
+  .ais-profile-who b {{ color: {INK}; font-weight: 600; }}
+  .ais-profile-who span {{ color: {INK_SOFT}; font-size: .85rem; }}
+
   /* Sandbox banner: a quiet pill, still impossible to miss. */
   .ais-banner {{
     display: inline-flex; align-items: center; gap: .5rem;
@@ -197,6 +237,20 @@ APP_CSS = f"""
     font-size: 2.5rem; font-weight: 600; letter-spacing: -.035em; line-height: 1.05;
     margin: 0 0 .35rem; padding: 0; color: {INK};
   }}
+  a.ais-todo-link {{
+    color: {INK}; font-weight: 500; text-decoration: none;
+    display: inline-flex; align-items: flex-start; gap: .55rem;
+  }}
+  a.ais-todo-link .material-symbols-rounded {{
+    font-family: 'Material Symbols Rounded'; font-size: 1.2rem; line-height: 1.4;
+  }}
+  a.ais-todo-link:hover {{ text-decoration: underline; }}
+  .ais-section {{ margin: 2.4rem 0 .2rem; scroll-margin-top: 80px; }}
+  .ais-section h2 {{
+    font-size: 1.6rem; font-weight: 600; letter-spacing: -.025em; line-height: 1.1;
+    margin: 0 0 .3rem; padding: 0; color: {INK};
+  }}
+  .ais-section p {{ color: {INK_SOFT}; font-size: .95rem; margin: 0; }}
   .ais-head p {{ color: {INK_SOFT}; font-size: 1rem; margin: 0; max-width: 70ch; }}
   .ais-rule {{ height: 0; background: none; margin: 1.2rem 0; border: 0; }}
 

@@ -31,7 +31,7 @@ import re
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 
-from ...config.categories import COMMITTEE_BY_ID, committee_name
+from ...config.categories import LINE_BY_ID as COMMITTEE_BY_ID, line_name as committee_name
 from .merchants import merchant_key
 from .scoring import CardRegistry, card_number, current_era
 

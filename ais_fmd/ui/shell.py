@@ -54,8 +54,8 @@ def bootstrap(page_title: str = "UF AIS Financial Management") -> None:
         # macOS and Android -- and reads as a placeholder either way.
         page_icon=":material/account_balance:",
         layout="wide",
-        # Pebble navigates from the top bar. The sidebar only holds the role
-        # switcher, sandbox controls and sign-out, so it starts closed.
+        # Pebble navigates from the top bar, and the profile menu took over
+        # what the sidebar held. Nothing renders into the sidebar any more.
         initial_sidebar_state="collapsed",
     )
     theme.register()
@@ -81,7 +81,12 @@ def page_header(title: str, subtitle: str = "") -> None:
     here, beside the title, so every merged page gets it without changes.
     """
     pending = st.session_state.pop(_HUB_PENDING_KEY, None)
-    if pending:
+    # Two views fit beside the title. Three or more get their own row under it:
+    # beside the title, the pills scrolled the first view's label out of sight
+    # at laptop widths.
+    if pending and len(pending[1]) > 2:
+        title_column, switch_column = st.container(), st.container()
+    elif pending:
         title_column, switch_column = st.columns([3, 2], vertical_alignment="bottom")
     else:
         title_column, switch_column = st.container(), None
@@ -95,6 +100,13 @@ def page_header(title: str, subtitle: str = "") -> None:
                 "View", labels, key=key, selection_mode="single", label_visibility="collapsed"
             )
     st.markdown('<hr class="ais-rule" />', unsafe_allow_html=True)
+
+
+def section_header(title: str, subtitle: str = "", *, anchor: str | None = None) -> None:
+    """A second title further down a page, e.g. Home's "This term in detail"."""
+    id_attr = f' id="{anchor}"' if anchor else ""
+    body = f"<h2>{title}</h2>" + (f"<p>{subtitle}</p>" if subtitle else "")
+    html(f'<div class="ais-section"{id_attr}>{body}</div>')
 
 
 def html(markup: str) -> None:
@@ -468,26 +480,59 @@ def dataframe(df: pd.DataFrame, **kwargs) -> None:
 # single light palette, so there is no second mode to switch to.
 
 
-def sidebar_footer() -> None:
-    st.sidebar.markdown("---")
+def profile_menu(links: Iterable, sandbox_controls=None) -> None:
+    """
+    The profile button at the top right, which replaced the sidebar (2026-11-08).
 
-    # Sign out, in production only. `auth.sign_out()` was written correct and
-    # called by nothing, which meant the app had no way to end a session at all:
-    # once an identity was in st.session_state it stayed until the browser
-    # session did. On a shared treasury laptop the next person to open the tab
-    # was signed in as ADMIN.
-    #
-    # Absent in the open sandbox on purpose -- there the identity is fabricated and
-    # the sidebar role switcher is how you change it.
-    if not settings.is_sandbox() or settings.sandbox_login_enabled():
-        identity = st.session_state.get(auth.SESSION_KEY)
-        if identity is not None:
-            st.sidebar.caption(f"Signed in as **{identity.email}**")
-            if st.sidebar.button("Sign out", width="stretch", key="_ais_sign_out"):
-                auth.sign_out()
-                st.rerun()
+    Opens a menu with who is signed in, links to the pages kept out of the top
+    bar (`links`: st.Page objects the person may open), the sandbox role
+    switcher and `sandbox_controls` (a callable), and Sign out.
 
-    mode = "Sandbox" if settings.is_sandbox() else "Production"
-    st.sidebar.caption(f"Mode: **{mode}**")
-    if settings.is_sandbox():
-        st.sidebar.caption("Local SQLite. No network, no real money.")
+    Rendered into the page body and pinned over the header's right side by the
+    `st-key-ais-profile` rule in ui/theme.py: Streamlit has no slot in its
+    header for app widgets.
+    """
+    identity = st.session_state.get(auth.SESSION_KEY)
+    role_label = identity.role.label if identity is not None else "Account"
+    with st.container(key="ais-profile"):
+        with st.popover(role_label, icon=":material/account_circle:"):
+            if identity is not None:
+                committee = ""
+                if identity.committee_id is not None:
+                    from ..config.categories import committee_name
+
+                    committee = f" · {committee_name(identity.committee_id)}"
+                html(
+                    '<div class="ais-profile-who">'
+                    f"<b>{identity.email}</b><span>{role_label}{committee}</span></div>"
+                )
+
+            links = list(links)
+            if links:
+                st.markdown('<hr class="ais-rule" />', unsafe_allow_html=True)
+                for page in links:
+                    st.page_link(page, width="stretch")
+
+            if settings.is_sandbox() and not settings.sandbox_login_enabled():
+                st.markdown('<hr class="ais-rule" />', unsafe_allow_html=True)
+                auth.role_switcher()
+                if sandbox_controls is not None:
+                    sandbox_controls()
+
+            # Sign out, in production only. `auth.sign_out()` was written correct and
+            # called by nothing, which meant the app had no way to end a session at all:
+            # once an identity was in st.session_state it stayed until the browser
+            # session did. On a shared treasury laptop the next person to open the tab
+            # was signed in as ADMIN.
+            #
+            # Absent in the open sandbox on purpose -- there the identity is fabricated
+            # and the role switcher above is how you change it.
+            if identity is not None and (
+                not settings.is_sandbox() or settings.sandbox_login_enabled()
+            ):
+                st.markdown('<hr class="ais-rule" />', unsafe_allow_html=True)
+                if st.button(
+                    "Sign out", icon=":material/logout:", width="stretch", key="_ais_sign_out"
+                ):
+                    auth.sign_out()
+                    st.rerun()

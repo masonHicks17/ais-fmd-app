@@ -17,7 +17,7 @@ import pandas as pd
 import pytest
 
 from ais_fmd import settings
-from ais_fmd.config.categories import COMMITTEE_BY_ID
+from ais_fmd.config.categories import COMMITTEE_BY_ID, RETIRED_LINES
 from ais_fmd.domain.categorize import llm
 from ais_fmd.domain.categorize.llm import (
     SpendVerdict,
@@ -40,7 +40,10 @@ def test_prompt_file_loads_without_its_editor_notes():
 def test_prompt_has_a_profile_for_every_committee():
     profiles = load_spend_review_prompt().split("# Committee profiles", 1)[1]
     ids = {int(found) for found in re.findall(r"^## (\d+) ", profiles, re.M)}
-    assert ids == set(COMMITTEE_BY_ID)
+    assert set(COMMITTEE_BY_ID) <= ids, "a committee or ledger bucket has no profile"
+    # The prompt still carries profiles for the retired lines (8, 12-16, 18); any
+    # other extra id would be a typo or a stale committee.
+    assert ids - set(COMMITTEE_BY_ID) <= set(RETIRED_LINES)
 
 
 def test_prompt_does_not_hardcode_this_terms_dues_rate():

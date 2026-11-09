@@ -168,7 +168,7 @@ def test_the_treasurer_profile_signs_in_to_the_full_app_and_a_stranger_is_refuse
     )
     assert treasurer.role == auth.Role.TREASURER and not treasurer.committee_scoped
     app = open_app(treasurer)
-    for page in ("Dashboard", "TransactionsHub", "Treasury", "Officer"):
+    for page in ("Home", "TransactionsHub", "Treasury", "Officer"):
         assert opens(app, page), f"{page} should open for the treasurer"
     assert auth._identity_for_google_user(
         {"email": "stranger@sandbox.local", "email_verified": True}, fetch_profile=backend.fetch_profile
@@ -187,7 +187,7 @@ def test_my_committee_renders_for_every_committee_in_every_term(line, semester, 
     assert "Spending pace" in [s.value for s in app.subheader]
 
 
-@pytest.mark.parametrize("line", [8, 2, 12, 16])
+@pytest.mark.parametrize("line", [2, 4])  # Treasury, President: no VP roll-up
 def test_committees_without_a_vp_roll_up_still_render_cleanly(line, demo_db):
     for view in ("Officer.py", "MyTransactions.py"):
         assert_clean(run_as(VIEWS / view, OFFICER, line), f"{view} for line {line}")
@@ -374,7 +374,7 @@ def test_the_demo_sign_in_picker_signs_in_as_a_profile_through_the_real_lookup(e
     # And that identity really is the VP's: three pages, nothing org-wide.
     for page in VP_PAGES:
         assert opens(app, page), f"{page} did not open after signing in as {email}"
-    assert not opens(app, "Dashboard")
+    assert not opens(app, "Home")
     assert app.session_state[auth.SESSION_KEY].committee_id == line  # the pickers did not undo it
 
 

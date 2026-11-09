@@ -7,7 +7,6 @@ import streamlit as st
 
 from ais_fmd import auth
 from ais_fmd.data import repositories as repo
-from ais_fmd.domain import dues as dues_domain
 from ais_fmd.domain import roster as roster_domain
 from ais_fmd.domain.money import format_currency
 from ais_fmd.domain.terms import (
@@ -139,44 +138,8 @@ if stored.empty:
     )
     st.stop()
 
-def _text(value: object) -> str:
-    """
-    A DB column value as a string, NULL-safe.
-
-    `value or ""` does not fall back on a pandas NaN -- NaN is truthy, so it
-    returns the NaN, and a caller wrapping that in `str()` gets the literal
-    string "nan" rendered on the page instead of a blank. Every optional TEXT
-    column read from SQLite needs this, not just `value or ""`.
-    """
-    if value is None or (isinstance(value, float) and pd.isna(value)):
-        return ""
-    return str(value)
-
-
-def _stored_member(row: dict) -> roster_domain.Member:
-    alt_keys = tuple(
-        part.strip() for part in _text(row.get("alt_keys")).split(",") if part.strip()
-    )
-    return roster_domain.Member(
-        full_name=_text(row.get("full_name")),
-        match_key=_text(row.get("match_key")),
-        alt_keys=alt_keys,
-        preferred_name=_text(row.get("preferred_name")),
-        claims_paid=bool(row.get("claims_paid") or 0),
-        email=_text(row.get("email")),
-        ufid=_text(row.get("ufid")),
-    )
-
-
-members = [_stored_member(row) for row in stored.to_dict("records")]
-
-schedule = dues_domain.schedule_from_terms(terms)
-paid_rows = dues_domain.dues_transactions(bundle.transactions, schedule)
-if not paid_rows.empty:
-    from ais_fmd.domain.terms import attach_semester
-
-    tagged = attach_semester(paid_rows, terms)
-    paid_rows = tagged[tagged["Semester"].astype(str) == str(selected)]
+members = roster_domain.members_from_rows(stored)
+paid_rows = roster_domain.semester_dues_rows(bundle.transactions, terms, selected)
 
 result = roster_domain.reconcile(paid_rows, members)
 summary = result.summary()

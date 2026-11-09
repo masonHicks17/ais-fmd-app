@@ -437,12 +437,13 @@ def test_reimbursed_spend_now_lands_in_a_budgeted_committee():
 
     17 (Refunded) is `kind="ledger"` and sits outside budget-vs-actual, so under
     the old rule every reimbursed dollar was invisible to the budget of the
-    committee that spent it. Committees 13/14/18 are all `kind="committee"`.
+    committee that spent it. Lines 13/14/18 are retired, so the booking is the
+    committee each folds into (Marketing, Membership) -- all `kind="committee"`.
     """
-    from ais_fmd.config.categories import COMMITTEE_BY_ID
+    from ais_fmd.config.categories import COMMITTEE_BY_ID, current_committee_id
 
     result = classify_deterministic(row(venmo("crewneck order"), -300.00))
-    assert COMMITTEE_BY_ID[result.committee_id].kind == "committee"
+    assert COMMITTEE_BY_ID[current_committee_id(result.committee_id)].kind == "committee"
 
 
 def test_a_merchant_return_is_still_a_refund():
