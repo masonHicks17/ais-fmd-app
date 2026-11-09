@@ -687,6 +687,33 @@ def load_plan_lines(
 
 
 @st.cache_data(ttl=60, show_spinner=False)
+def _planned_events(version: int, committee_ids: tuple[int, ...] | None, semester: str | None) -> pd.DataFrame:
+    return backend().fetch_planned_events(committee_ids, semester)
+
+
+def load_planned_events(
+    committee_ids: tuple[int, ...] | None = None, semester: str | None = None
+) -> pd.DataFrame:
+    """Events a committee plans to hold. Raises where the backend cannot store them (migration 018)."""
+    scope = None if committee_ids is None else tuple(int(i) for i in committee_ids)
+    return _planned_events(data_version(), scope, semester)
+
+
+@_blocked_when_read_only(_update_refusal)
+def replace_planned_events(
+    committee_id: int,
+    semester: str,
+    events: list[dict],
+    allowed_committee_ids: tuple[int, ...],
+    actor: str,
+) -> UpdateResult:
+    result = backend().replace_planned_events(committee_id, semester, events, allowed_committee_ids, actor)
+    if result.updated:
+        invalidate()
+    return result
+
+
+@st.cache_data(ttl=60, show_spinner=False)
 def _budget_requests(
     version: int, committee_ids: tuple[int, ...] | None, semester: str | None
 ) -> pd.DataFrame:

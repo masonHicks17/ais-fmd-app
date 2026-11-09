@@ -29,6 +29,7 @@ from ais_fmd.config.categories import (
 )
 from ais_fmd.data import repositories as repo
 from ais_fmd.domain import flags as flags_domain
+from ais_fmd.domain.details import tidy
 from ais_fmd.domain.money import format_currency
 from ais_fmd.ui import shell
 
@@ -65,7 +66,7 @@ def _flash() -> None:
 
 def _charge_label(row: pd.Series) -> str:
     day = pd.Timestamp(row["transaction_date"]).date()
-    details = str(row["details"] or "")[:48]
+    details = tidy(row["details"])[:48]
     return f"{day}  ·  {format_currency(row['amount'])}  ·  {details}"
 
 
@@ -193,7 +194,7 @@ def vp_panel(
                     "Flagged": pd.to_datetime(mine["flagged_at"]).dt.date,
                     "Charge date": pd.to_datetime(mine["transaction_date"]).dt.date,
                     "Amount": mine["amount"],
-                    "Details": mine["details"].fillna("").astype(str).str.slice(0, 60),
+                    "Details": mine["details"].map(tidy).str.slice(0, 60),
                     "Your note": mine["note"],
                     "Status": mine["status"].map(flags_domain.vp_status_label),
                     "Treasurer's reply": mine["resolution_note"].fillna(""),

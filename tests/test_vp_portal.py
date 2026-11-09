@@ -18,6 +18,7 @@ from ais_fmd.config import vp_committees
 from ais_fmd.config.categories import BUDGETED_COMMITTEE_IDS, committee_name
 from ais_fmd.domain import budgets as budget_domain
 from ais_fmd.domain import vp_metrics
+from ais_fmd.domain.details import tidy
 
 # Fixtures and helpers shared with the other headless view tests.
 from tests.test_views import ROOT, TIMEOUT, VIEWS, assert_clean, seeded_db, use_db  # noqa: F401
@@ -67,7 +68,7 @@ FULL_PAGES = [
 def test_a_vp_gets_exactly_these_pages_with_the_assistant_last():
     vp = auth.Identity(email="vp@x.edu", role=OFFICER, committee_id=5)
     titles = [page[1] for page in nav.visible_pages(vp, FULL_PAGES)]
-    assert titles == ["My Committee", "My Transactions", "My Plan", "Assistant"]
+    assert titles == ["My Committee", "My Transactions", "My Plan", "Events", "Assistant"]
 
 
 def test_a_vp_never_gets_a_page_that_shows_every_committee():
@@ -107,7 +108,7 @@ def _committee_rows(committee_id: int) -> list[tuple]:
         (
             str(pd.Timestamp(date).date()),
             round(float(amount), 2),
-            "" if pd.isna(details) else str(details),
+            tidy(details),  # what the page shows (domain/details.py), not the bank's text
         )
         for date, amount, details in zip(rows["transaction_date"], rows["amount"], rows["details"])
     )
@@ -297,10 +298,17 @@ def membership_db(seeded_db, use_db):
 def test_the_fixture_really_put_three_rows_on_the_second_line(membership_db):
     membership, president = _committee_rows(5), _committee_rows(OUTSIDE)
     assert len(membership) >= 3 and len(president) == 3
-    assert not {row[2] for row in membership} & {row[2] for row in president}
+    assert not set(membership) & set(president)  # whole rows: names alone repeat (two Chipotle runs)
 
 
 # --- The President's line is outside the VP committees ----------------------------
+
+
+def _raw_details(committee_id) -> list[str]:
+    from ais_fmd.data.sqlite_backend import SqliteBackend
+
+    frame = SqliteBackend().fetch_transactions()
+    return [str(d) for d in frame.loc[frame["budget_category"] == committee_id, "details"].dropna()]
 
 
 def _shown_rows(frame):
@@ -316,14 +324,14 @@ def test_the_membership_vp_sees_only_membership_rows_and_never_a_presidents_char
     shown = app.dataframe[0].value
     assert "Line" not in shown.columns  # one line, so no per-line column
     assert _shown_rows(shown) == _committee_rows(5)
-    president_charges = {row[2] for row in _committee_rows(OUTSIDE)}
-    assert president_charges and not president_charges & set(shown["Details"])
+    president_rows = set(_committee_rows(OUTSIDE))
+    assert president_rows and not president_rows & set(_shown_rows(shown))
 
 
 def test_the_membership_page_never_lists_a_presidents_charge(membership_db):
     app = run_as(VIEWS / "Officer.py", OFFICER, 5)
     assert_clean(app, "My Committee as the Membership VP")
-    president_charges = {row[2] for row in _committee_rows(OUTSIDE)}
+    president_charges = {tidy(d) for d in _raw_details(OUTSIDE)} | set(_raw_details(OUTSIDE))
     for element in app.dataframe:
         assert not president_charges & set(element.value.get("Details", [])), "a President's charge was listed"
         assert "Budget line" not in element.value.columns  # a single line has no per-line table
@@ -335,8 +343,7 @@ def test_a_profile_on_the_presidents_line_sees_only_its_rows(membership_db):
     assert_clean(app, "My Transactions on the President's line")
     shown = app.dataframe[0].value
     assert _shown_rows(shown) == _committee_rows(OUTSIDE)
-    membership_charges = {row[2] for row in _committee_rows(5)}
-    assert not membership_charges & set(shown["Details"])
+    assert not set(_committee_rows(5)) & set(_shown_rows(shown))
 
 
 # --- The roll-up machinery, for a committee that owns two lines ------------------
@@ -501,10 +508,22 @@ def test_pareto_rows_run_to_the_whole_of_spending():
     assert rows[0]["of_budget"] == pytest.approx(7.0)
 
 
-def test_my_committee_draws_the_spend_bar_and_pareto(seeded_db, use_db):
+def test_my_committee_draws_the_spend_bar_and_the_kinds_of_spending(seeded_db, use_db):
     use_db(seeded_db)
     app = run_as(VIEWS / "Officer.py", OFFICER, 5)
     assert_clean(app, "My Committee as the Membership VP")
     html = " ".join(block.value for block in app.markdown)
     assert "ais-vbar" in html and "of the budget spent" in html
-    assert "ais-stack" in html and "Paid to" in html
+    assert "Where the money went" in [str(h.value) for h in app.subheader]
+    assert any(chart.proto.spec and "Food & catering" in chart.proto.spec for chart in app.get("plotly_chart"))
+    labels = [m.label for m in app.metric] if app.metric else []
+    assert "Used" not in labels and "Spent" not in labels, "the bar card already says these"
+
+
+def test_the_bank_text_toggle_shows_exactly_the_stored_details(membership_db):
+    """The readable names are display only; the toggle shows what the bank wrote, row for row."""
+    app = run_as(VIEWS / "MyTransactions.py", OFFICER, 5, mytxn_semester="All", mytxn_raw_details=True)
+    assert_clean(app, "My Transactions with bank text")
+    shown = app.dataframe[0].value
+    assert sorted(shown["Details"]) == sorted(_raw_details(5))
+    assert any(text.startswith("PURCHASE AUTHORIZED ON") for text in shown["Details"])

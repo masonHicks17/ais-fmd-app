@@ -8,15 +8,18 @@ a VP flagging a charge, and the treasurer seeing and closing it in the Review Qu
 
 from __future__ import annotations
 
+import pandas as pd
+
 from ais_fmd import auth
 from ais_fmd.data.backend import TransactionChange
 from ais_fmd.data.sqlite_backend import SqliteBackend
+from ais_fmd.domain.details import tidy
 from ais_fmd.ui.flags import VERDICT_FIXED, VERDICT_KEEP, VERDICT_MOVE
 
 # Fixtures and helpers shared with the other VP tests.
 from tests.test_flags import NOTE, OFFICER, TREASURER, VP, _flagged, charge_in, snapshot  # noqa: F401
 from tests.test_views import VIEWS, assert_clean, seeded_db, use_db  # noqa: F401
-from tests.test_vp_portal import _committee_rows, run_as  # noqa: F401
+from tests.test_vp_portal import _committee_rows, _shown_rows, run_as  # noqa: F401
 
 
 def test_a_vp_flags_a_charge_through_the_page_and_nothing_else_changes(seeded_db, use_db):
@@ -91,7 +94,8 @@ def test_the_treasurer_moves_a_charge_and_both_committees_see_it_move(seeded_db,
     use_db(seeded_db)
     backend = SqliteBackend()
     charge, flag_id = _flagged(backend, 7)  # a Consulting VP says it is not theirs
-    details = str(backend.fetch_transactions().set_index("transactionid").loc[charge, "details"])
+    stored = backend.fetch_transactions().set_index("transactionid").loc[charge]
+    moved = (str(pd.Timestamp(stored["transaction_date"]).date()), round(float(stored["amount"]), 2), tidy(stored["details"]))
     consulting_before = _committee_rows(7)
     marketing_before = _committee_rows(9)
 
@@ -108,19 +112,19 @@ def test_the_treasurer_moves_a_charge_and_both_committees_see_it_move(seeded_db,
     # The books agree on both sides: one fewer for Consulting, one more for Marketing.
     assert len(_committee_rows(7)) == len(consulting_before) - 1
     assert len(_committee_rows(9)) == len(marketing_before) + 1
-    assert details in {row[2] for row in _committee_rows(9)}
-    assert details not in {row[2] for row in _committee_rows(7)}
+    assert moved in _committee_rows(9)
+    assert moved not in _committee_rows(7)
 
     # The Consulting VP no longer has the charge, and is told how it ended.
     consulting = run_as(VIEWS / "MyTransactions.py", OFFICER, 7, mytxn_semester="All")
-    assert details not in set(consulting.dataframe[0].value["Details"])
+    assert moved not in _shown_rows(consulting.dataframe[0].value)
     answered = next(e.value for e in consulting.dataframe if "Treasurer's reply" in e.value.columns)
     assert answered["Status"].tolist() == ["Resolved"]
     assert "Moved from Consulting to Marketing." in answered["Treasurer's reply"].iloc[0]
 
     # The Marketing VP now has it.
     marketing = run_as(VIEWS / "MyTransactions.py", OFFICER, 9, mytxn_semester="All")
-    assert details in set(marketing.dataframe[0].value["Details"])
+    assert moved in _shown_rows(marketing.dataframe[0].value)
 
 
 def test_keeping_a_charge_closes_the_flag_and_changes_nothing(seeded_db, use_db):

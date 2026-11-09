@@ -30,7 +30,10 @@ if not auth.google_login_available():
         "needs (a Google Cloud OAuth app, and the `[auth]` section in secrets).",
     )
 
-ROLE_OPTIONS = ["member", "officer", "treasurer", "president", "admin"]
+# Only committee heads sign in: a VP per committee, the Treasurer (who heads
+# Treasury) and the President. "member" and "admin" are still valid stored
+# roles, but no one is added with them any more (2026-11-09).
+ROLE_OPTIONS = ["officer", "treasurer", "president"]
 ROLE_HELP = {
     "member": "Read-only dashboards.",
     "officer": "Adds their own committee's detail and reimbursement requests.",
@@ -50,7 +53,10 @@ with st.expander("Add or update someone", expanded=True):
             "Email", placeholder="vp@ufl.edu", help="Must match their Google account exactly."
         )
         display_name = cols[1].text_input("Name", placeholder="optional")
-        role = cols[2].selectbox("Role", ROLE_OPTIONS, index=1, help=ROLE_HELP["officer"])
+        role = cols[2].selectbox(
+            "Role", ROLE_OPTIONS, index=0, help=ROLE_HELP["officer"],
+            format_func=lambda r: {"officer": "VP"}.get(r, r.title()),
+        )
         committee_choice = cols[3].selectbox("Committee", committee_options)
         submitted = st.form_submit_button("Save", type="primary")
 

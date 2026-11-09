@@ -79,7 +79,11 @@ if type_choice == "Income":
 elif type_choice == "Expense":
     view = view[view["amount"] < 0]
 if search.strip():
-    view = view[view["details"].str.contains(search.strip(), case=False, na=False, regex=False)]
+    wanted = search.strip()
+    view = view[
+        view["details"].str.contains(wanted, case=False, na=False, regex=False)
+        | view["details"].map(tidy).str.contains(wanted, case=False, na=False, regex=False)
+    ]
 
 view = view.sort_values("transaction_date", ascending=False).reset_index(drop=True)
 
@@ -88,7 +92,7 @@ with count_column:
     st.caption(f"{len(view):,} of {len(tagged):,} transactions match.")
 with raw_column:
     # Details are trimmed for reading (domain/details.py); the bank's own text
-    # is still what is stored and searched.
+    # is still what is stored; search matches either.
     show_raw = st.toggle("Bank text", key="txn_raw_details", help="Show the description exactly as the bank wrote it.")
 
 if view.empty:

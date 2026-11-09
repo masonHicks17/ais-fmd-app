@@ -66,12 +66,10 @@ VP_COMMITTEES: tuple[VpCommittee, ...] = (
     VpCommittee("Professional Development", (10,)),
     # Exact name match.
     VpCommittee("Consulting", (7,)),
-    # Marketing is an exact match. Merch (13) may belong here too -- unconfirmed.
+    # Exact name match. Merch spending books here (retired line 13, 2026-11-09).
     VpCommittee("Marketing", (9,)),
-    # Membership is an exact match and owns only its own line. Passport (16) was
-    # first assumed to belong here (a Membership chair runs the passport program),
-    # but it is treated as OUTSIDE the six committees, so no VP sees it.
-    # Meeting Food, Road Trip and Formal may belong to a committee -- unconfirmed.
+    # Exact name match. Meeting Food, Road Trip, ISOM Passport and Formal all
+    # book here since the seven-committee change (2026-11-09).
     VpCommittee("Membership", (5,)),
     # Operations (formerly Corporate Relations) is an exact name match and owns only its own line. In the
     # sandbox seed every sponsorship deposit is booked to this line, so its "Money

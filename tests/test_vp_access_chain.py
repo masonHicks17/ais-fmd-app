@@ -27,7 +27,7 @@ from tests.test_views import ROOT, TIMEOUT, VIEWS, assert_clean, seeded_db, use_
 from tests.test_vp_portal import _committee_rows, membership_db  # noqa: F401
 
 VIEW = "ais_fmd/views/{}.py"
-VP_PAGES = ["Officer", "MyTransactions", "MyPlan", "Assistant"]
+VP_PAGES = ["Officer", "MyTransactions", "MyPlan", "Events", "Assistant"]
 ORG_WIDE_PAGES = [
     "Home", "Dashboard", "Transactions", "Dues", "Reports", "Reconciliation",
     "Runbook", "Treasury", "ReviewQueue", "Roster", "Planner", "DataQuality", "AuditLog",

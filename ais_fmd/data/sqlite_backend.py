@@ -415,6 +415,24 @@ CREATE TABLE IF NOT EXISTS budget_requests (
     requested_at TEXT DEFAULT CURRENT_TIMESTAMP,
     UNIQUE (committee_id, semester)
 );
+
+-- Events a VP plans for a semester (My Plan, 2026-11-09): what, roughly when,
+-- what it should cost and who should come. Like plan lines, keyed by the
+-- semester's name and only an estimate -- it never books or reserves money.
+-- `kind` is the past-event idea it came from ("Tailgate", "GBM"), if any.
+CREATE TABLE IF NOT EXISTS planned_events (
+    planned_event_id    INTEGER PRIMARY KEY AUTOINCREMENT,
+    committee_id        INTEGER NOT NULL,
+    semester            TEXT NOT NULL,
+    event_date          TEXT,
+    title               TEXT NOT NULL,
+    kind                TEXT,
+    estimated_cost      REAL NOT NULL DEFAULT 0,
+    expected_attendance INTEGER,
+    note                TEXT,
+    updated_by          TEXT,
+    updated_at          TEXT DEFAULT CURRENT_TIMESTAMP
+);
 """
 
 
@@ -1090,6 +1108,63 @@ class SqliteBackend(Backend):
                 )
                 connection.commit()
                 result.updated = len(lines) or 1
+        except sqlite3.Error as exc:
+            result.error = f"{type(exc).__name__}: {exc}"
+        return result
+
+    def fetch_planned_events(
+        self, committee_ids: tuple[int, ...] | None = None, semester: str | None = None
+    ) -> pd.DataFrame:
+        return self._scoped_read(
+            "planned_events", committee_ids, semester, "committee_id, event_date IS NULL, event_date, title"
+        )
+
+    def replace_planned_events(
+        self,
+        committee_id: int,
+        semester: str,
+        events: list[dict],
+        allowed_committee_ids: tuple[int, ...],
+        actor: str,
+    ) -> UpdateResult:
+        """Make `events` the committee's whole event plan for `semester` (cleaned by the page)."""
+        result = UpdateResult()
+        if int(committee_id) not in {int(i) for i in allowed_committee_ids}:
+            result.error = "You can only plan for your own committee."
+            return result
+        try:
+            with self._connect() as connection:
+                connection.execute("BEGIN")
+                before = connection.execute(
+                    "SELECT COUNT(*) FROM planned_events WHERE committee_id = ? AND semester = ?",
+                    (int(committee_id), semester),
+                ).fetchone()[0]
+                connection.execute(
+                    "DELETE FROM planned_events WHERE committee_id = ? AND semester = ?",
+                    (int(committee_id), semester),
+                )
+                for event in events:
+                    connection.execute(
+                        "INSERT INTO planned_events (committee_id, semester, event_date, title, kind, "
+                        "estimated_cost, expected_attendance, note, updated_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        (
+                            int(committee_id), semester, event.get("event_date"), event["title"],
+                            event.get("kind"), float(event.get("estimated_cost") or 0),
+                            None if event.get("expected_attendance") is None else int(event["expected_attendance"]),
+                            event.get("note"), actor,
+                        ),
+                    )
+                self._audit(
+                    connection,
+                    transaction_id=None,
+                    action="event plan",
+                    actor=actor,
+                    field=f"committee {int(committee_id)} / {semester}",
+                    old_value=f"{before} event(s)",
+                    new_value=f"{len(events)} event(s)",
+                )
+                connection.commit()
+                result.updated = len(events) or 1
         except sqlite3.Error as exc:
             result.error = f"{type(exc).__name__}: {exc}"
         return result
@@ -2054,7 +2129,7 @@ class SqliteBackend(Backend):
         with self._connect() as connection:
             tables = [
                 "spend_reviews", "llm_runs",
-                "committee_plan_lines", "budget_requests",
+                "committee_plan_lines", "budget_requests", "planned_events",
                 "transaction_flags", "event_links",  # before transactions, which they reference
                 "receipts", "reimbursements", "transaction_audit", "statement_balances",
                 "merchants", "uploaded_files", "transactions", "committeebudgets",
@@ -2141,6 +2216,10 @@ def _columns_for(query: str) -> list[str]:
         "budget_requests": [
             "request_id", "committee_id", "semester", "amount", "reason",
             "requested_by", "requested_at",
+        ],
+        "planned_events": [
+            "planned_event_id", "committee_id", "semester", "event_date", "title", "kind",
+            "estimated_cost", "expected_attendance", "note", "updated_by", "updated_at",
         ],
     }
     lowered = query.lower()

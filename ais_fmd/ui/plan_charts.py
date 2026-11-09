@@ -94,3 +94,53 @@ def plan_donut(slices: pd.DataFrame) -> go.Figure:
         )],
     )
     return figure
+
+
+def projection_bar(figures: dict, color: str) -> str:
+    """
+    One bar across the budget: what has been spent (solid), the planned events
+    still to come (striped, an estimate), and the room left for extras (empty).
+    When the plan goes past the budget the bar is scaled to the plan and a mark
+    shows where the budget ends.
+    """
+    from html import escape
+
+    budget = float(figures["budget"] or 0)
+    spent, ahead = figures["spent"], figures["ahead"]
+    scale = max(budget, spent + ahead, 0.01)
+
+    def width(amount: float) -> str:
+        return f"{max(amount, 0) / scale * 100:.2f}%"
+
+    room = max(budget - spent - ahead, 0.0)
+    mark = (f'<div style="position:absolute;top:-4px;bottom:-4px;left:{width(budget)};width:2px;'
+            f'background:{theme.OVER}"></div>') if spent + ahead > budget > 0 else ""
+
+    def key(swatch: str, label: str, amount: float) -> str:
+        return (f'<span style="display:inline-flex;align-items:center;gap:6px;margin-right:18px">'
+                f'<span style="width:12px;height:12px;border-radius:3px;{swatch}"></span>'
+                f'{escape(label)} <b>&#36;{amount:,.0f}</b></span>')
+
+    stripes = f"repeating-linear-gradient(135deg,{color} 0 6px,{_tint(color)} 6px 12px)"
+    return (
+        '<div style="margin:.4rem 0 1rem">'
+        f'<div style="position:relative;display:flex;height:26px;border-radius:8px;overflow:visible;'
+        f'background:{theme.CARD};box-shadow:inset 0 0 0 1px {theme.INK_MUTE}55">'
+        f'<div title="Spent (reported by the bank)" style="width:{width(spent)};background:{color};'
+        f'border-radius:8px 0 0 8px"></div>'
+        f'<div title="Planned events still to come (estimated)" style="width:{width(ahead)};background:{stripes}"></div>'
+        f'{mark}</div>'
+        f'<div style="margin-top:.5rem;font-size:.85rem;color:{theme.INK_SOFT}">'
+        + key(f"background:{color}", "Spent (reported)", spent)
+        + key(f"background:{stripes}", "Planned events ahead (estimate)", ahead)
+        + key(f"background:{theme.SUBTLE};border:1px solid {theme.INK_MUTE}", "Room for extras", room)
+        + "</div></div>"
+    )
+
+
+def _tint(hex_color: str) -> str:
+    value = hex_color.lstrip("#")
+    if len(value) != 6:
+        return theme.SUBTLE
+    r, g, b = (int(value[i:i + 2], 16) for i in (0, 2, 4))
+    return f"rgba({r},{g},{b},0.35)"

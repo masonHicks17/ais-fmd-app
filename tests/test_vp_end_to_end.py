@@ -31,6 +31,7 @@ import pandas as pd
 import pytest
 from streamlit.testing.v1 import AppTest
 
+from ais_fmd.domain.details import tidy
 from ais_fmd import auth
 from ais_fmd.config import vp_committees
 from ais_fmd.config.categories import committee_name
@@ -263,7 +264,7 @@ def test_a_hostile_bank_description_is_defused_in_the_csv_but_not_altered_on_scr
 
     app = run_as(VIEWS / "MyTransactions.py", OFFICER, 7, mytxn_semester="All")
     table = app.dataframe[0].value
-    assert hostile in set(table["Details"])  # the page shows what the bank said
+    assert tidy(hostile) in set(table["Details"])  # the page shows the readable form, unescaped
     csv = exports.transactions_csv(table).decode("utf-8-sig")
     assert "'=HYPERLINK" in csv and ",=HYPERLINK" not in csv
 

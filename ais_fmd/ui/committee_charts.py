@@ -141,3 +141,46 @@ def same_point_bars(frame: pd.DataFrame, typical: float | None, typical_label: s
         yaxis=dict(title=None),
     )
     return figure
+
+
+# Each committee's colour, shared with the Events calendar so a committee looks
+# the same everywhere it appears.
+COMMITTEE_COLORS: dict[int, str] = {
+    5: theme.ACCENT,            # Membership
+    4: theme.INK,               # President
+    6: theme.INK_MUTE,          # Operations
+    7: "#2F6FDB",               # Consulting
+    10: theme.POSITIVE,         # Professional Development
+    9: theme.WARNING,           # Marketing
+    2: "#6B5BD6",               # Treasury
+}
+
+
+def committee_color(committee_id: int | None) -> str:
+    return COMMITTEE_COLORS.get(int(committee_id), theme.INK) if committee_id is not None else theme.INK
+
+
+def kind_bars(split: pd.DataFrame, color: str) -> go.Figure:
+    """
+    Spending by kind (domain/spend_kinds.py), biggest at the top, each bar
+    labelled with its amount and share so no table is needed beside it.
+    """
+    if split.empty:
+        return charts.empty_figure("Nothing spent yet.")
+    data = split.iloc[::-1]  # plotly draws the first row at the bottom
+    figure = go.Figure(go.Bar(
+        y=data["Kind"], x=data["Amount"], orientation="h",
+        marker=dict(color=color, cornerradius=6),
+        text=[f"${amount:,.0f} · {share:.0f}%" for amount, share in zip(data["Amount"], data["Share"])],
+        textposition="outside", cliponaxis=False,
+        textfont=dict(color=theme.INK_SOFT, size=12),
+        customdata=data["Charges"],
+        hovertemplate="<b>%{y}</b><br>$%{x:,.2f} across %{customdata} charge(s)<extra></extra>",
+    ))
+    figure.update_layout(
+        height=max(220, 70 + 44 * len(data)), showlegend=False, bargap=0.35,
+        margin=dict(l=8, r=8, t=8, b=8),
+        xaxis=dict(visible=False, range=[0, float(data["Amount"].max()) * 1.45]),
+        yaxis=dict(title=None, ticks="", tickfont=dict(size=13, color=theme.INK)),
+    )
+    return figure

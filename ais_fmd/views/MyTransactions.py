@@ -19,6 +19,7 @@ from ais_fmd.config import vp_committees
 from ais_fmd.config.categories import committee_name
 from ais_fmd.data import repositories as repo
 from ais_fmd.domain import exports
+from ais_fmd.domain.details import tidy
 from ais_fmd.domain import flags as flags_domain
 from ais_fmd.domain import vp_metrics
 from ais_fmd.domain.terms import attach_semester, default_semester_index, ordered_semesters
@@ -94,7 +95,11 @@ if type_choice == "Income":
 elif type_choice == "Expense":
     view = view[view["amount"] < 0]
 if search.strip():
-    view = view[view["details"].str.contains(search.strip(), case=False, na=False, regex=False)]
+    wanted = search.strip()
+    view = view[
+        view["details"].str.contains(wanted, case=False, na=False, regex=False)
+        | view["details"].map(tidy).str.contains(wanted, case=False, na=False, regex=False)
+    ]
 
 view = view.sort_values("transaction_date", ascending=False)
 
@@ -115,12 +120,18 @@ if view.empty:
     shell.empty_state("Nothing matches these filters", " Try widening the search.")
     st.stop()
 
+# Details are trimmed for reading (domain/details.py). The bank's own text is
+# one toggle away, in case the trimming ever drops something that matters.
+show_raw = st.toggle(
+    "Bank text", key="mytxn_raw_details",
+    help="Show the description exactly as the bank wrote it, if a name looks wrong.",
+)
 table = pd.DataFrame(
     {
         "Date": pd.to_datetime(view["transaction_date"]).dt.date,
         "Amount": view["amount"],
         "Purpose": view["purpose"].fillna("—"),
-        "Details": view["details"].fillna("").astype(str),
+        "Details": view["details"].fillna("").astype(str) if show_raw else view["details"].map(tidy),
     }
 )
 if len(line_ids) > 1:

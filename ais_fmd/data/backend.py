@@ -502,6 +502,23 @@ class Backend(ABC):
         """
         return self._unsupported("Saving a committee plan")
 
+    def fetch_planned_events(
+        self, committee_ids: tuple[int, ...] | None = None, semester: str | None = None
+    ) -> pd.DataFrame:
+        """Events a committee plans to hold, optionally only these committees' and one semester's."""
+        raise NotImplementedError(f"{self.name} does not store event plans yet.")
+
+    def replace_planned_events(
+        self,
+        committee_id: int,
+        semester: str,
+        events: list[dict],
+        allowed_committee_ids: tuple[int, ...],
+        actor: str,
+    ) -> UpdateResult:
+        """Make `events` the committee's whole event plan for `semester`; own committee only."""
+        return self._unsupported("Saving an event plan")
+
     def fetch_budget_requests(
         self, committee_ids: tuple[int, ...] | None = None, semester: str | None = None
     ) -> pd.DataFrame:

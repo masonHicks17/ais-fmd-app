@@ -289,7 +289,25 @@ def test_the_treasurer_still_opens_the_access_list(seeded_db, use_db):
 def test_the_sandbox_role_picker_offers_the_president(seeded_db, use_db):
     use_db(seeded_db)
     app = AppTest.from_file(str(ROOT / "app.py"), default_timeout=TIMEOUT).run()
-    assert "President" in app.selectbox(key="ais_role_picker").options
+    assert "President" in app.selectbox(key="ais_signin_picker").options
+
+
+def test_only_the_committee_heads_can_sign_in(seeded_db, use_db):
+    """Committees are their heads: the President, the Treasurer and one VP per committee."""
+    use_db(seeded_db)
+    app = AppTest.from_file(str(ROOT / "app.py"), default_timeout=TIMEOUT).run()
+    assert app.selectbox(key="ais_signin_picker").options == [
+        "President", "Treasurer", "Professional Development VP", "Consulting VP",
+        "Marketing VP", "Membership VP", "Operations VP",
+    ]
+
+
+def test_picking_a_vp_signs_in_as_that_committee(seeded_db, use_db):
+    use_db(seeded_db)
+    app = AppTest.from_file(str(ROOT / "app.py"), default_timeout=TIMEOUT).run()
+    app.selectbox(key="ais_signin_picker").set_value("Membership VP").run()
+    identity = app.session_state[auth.SESSION_KEY]
+    assert (identity.role, identity.committee_id) == (auth.Role.OFFICER, 5)
 
 
 def test_the_president_has_their_own_budget_line_and_opens_on_it(seeded_db, use_db):

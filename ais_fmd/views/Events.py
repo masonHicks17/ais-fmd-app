@@ -8,6 +8,12 @@ purchase and says why, and a treasurer ticks the ones that are right.
 
 Live Google Calendar sync is shown as a preview only: the sandbox has no
 network, and the calendar ID is read from the workbook's calculation column.
+
+A VP (`identity.committee_scoped`) gets this page too. VPs work as one team,
+so they see every club event (titles, dates, places, attendance), but money -- what an event cost, purchases that may
+belong to one -- is worked out from their own committee's transactions only,
+and shown only on their own committee's events. They cannot sync, link or
+unlink; the treasurer does that.
 """
 
 from __future__ import annotations
@@ -20,20 +26,28 @@ import pandas as pd
 import streamlit as st
 
 from ais_fmd import auth
+from ais_fmd.config import vp_committees
 from ais_fmd.data import repositories as repo
 from ais_fmd.domain import events as events_domain
 from ais_fmd.domain.money import format_currency
 from ais_fmd.domain.terms import ordered_semesters, term_id_for_semester
-from ais_fmd.ui import shell, theme
+from ais_fmd.ui import calendar_grid, committee_charts, shell, theme
 
 auth.require(auth.Role.MEMBER)
 identity = auth.current_user()
-can_edit = identity.can(auth.Role.TREASURER)
+can_edit = identity.can_write
+scoped = identity.committee_scoped
 TODAY = date.today()
 
 shell.environment_banner()
+if scoped and identity.committee_id is None:
+    shell.page_header("Events", "The club calendar, and what your committee's events cost.")
+    shell.empty_state("No committee assigned to your account", " Ask the treasurer to add your email under Officer Access.")
+    st.stop()
+my_title = vp_committees.title_for(identity.committee_id) if scoped else ""
 shell.page_header(
     "Events",
+    f"The club calendar, and what {my_title}'s events cost." if scoped else
     "The club calendar next to the money: what happened when, who came, and "
     "what each event cost.",
 )
@@ -43,6 +57,18 @@ all_events = repo.load_events()
 links = repo.load_event_links()
 committees = repo.load_committees()
 committee_names = dict(zip(committees["CommitteeID"].astype(int), committees["Committee_Name"]))
+
+# Money comes only from transactions this identity may see. For a VP that is
+# their own committee's rows, picked before anything else touches them.
+my_ids = set(vp_committees.budget_ids_for(identity.committee_id)) if scoped else None
+money = bundle.transactions
+if scoped:
+    money = money[pd.to_numeric(money["budget_category"], errors="coerce").isin(my_ids)]
+
+
+def is_mine(committee_id) -> bool:
+    """Whether this identity sees money for an event booked to `committee_id`."""
+    return not scoped or (pd.notna(committee_id) and int(committee_id) in my_ids)
 
 # --- Sync ---------------------------------------------------------------------
 
@@ -136,22 +162,33 @@ term_events = all_events[all_events["term_id"] == term_id].copy()
 term_events["day"] = pd.to_datetime(term_events["event_date"]).dt.date
 with committee_column:
     present = sorted({int(c) for c in term_events["committee_id"].dropna()}, key=lambda c: committee_names.get(c, ""))
-    scope = st.selectbox(
-        "Committee", ["All committees", *[committee_names.get(c, str(c)) for c in present]], key="events_committee"
-    )
-if scope != "All committees":
+    if scoped:
+        # VPs work as one team, so every VP sees the whole club calendar; only the
+        # money is limited to their own committee (see is_mine).
+        scope = st.selectbox("Show", ["All club events", f"{my_title} events"], key="events_committee_vp")
+    else:
+        scope = st.selectbox(
+            "Committee", ["All committees", *[committee_names.get(c, str(c)) for c in present]], key="events_committee"
+        )
+if scoped:
+    if scope != "All club events":
+        term_events = term_events[term_events["committee_id"].map(is_mine)]
+elif scope != "All committees":
     wanted = next(c for c in present if committee_names.get(c) == scope)
     term_events = term_events[term_events["committee_id"] == wanted]
 with view_column:
     view = st.segmented_control("View", ["Month", "List"], default="Month", key="events_view") or "Month"
 
-spending = events_domain.event_spending(bundle.transactions, links)
+spending = events_domain.event_spending(money, links)
 term_events = term_events.merge(spending, on="event_id", how="left")
 term_events["Spent"] = term_events["Spent"].fillna(0.0)
 term_events["Purchases"] = term_events["Purchases"].fillna(0).astype(int)
+# Another committee's event shows no money to a VP, even one of their own
+# purchases linked to it -- the event's cost belongs to its committee.
+term_events.loc[~term_events["committee_id"].map(is_mine), ["Spent", "Purchases"]] = 0
 
-suggestions = events_domain.suggest_links(bundle.transactions, all_events, links, committees)
-term_ids = set(term_events["event_id"])
+suggestions = events_domain.suggest_links(money, all_events, links, committees)
+term_ids = set(term_events.loc[term_events["committee_id"].map(is_mine), "event_id"])
 term_suggestions = [s for s in suggestions if s.event_id in term_ids]
 
 # --- Headline -----------------------------------------------------------------
@@ -163,10 +200,12 @@ to_review = [s for s in term_suggestions if s.confidence != events_domain.LOW]
 tiles = [
     ("events-count", "Events", f"{len(term_events):,}", False,
      f"{len(held):,} held, {len(term_events) - len(held):,} to come"),
-    ("events-linked", "Spending linked", float(costed["Spent"].sum()), True, f"across {len(costed):,} events"),
+    ("events-linked", "Your spending linked" if scoped else "Spending linked", float(costed["Spent"].sum()), True,
+     f"across {len(costed):,} events"),
     ("events-attendance", "Average attendance", f"{attended.mean():.0f}" if len(attended) else "—", False,
      f"{len(attended):,} events with a count"),
-    ("events-review", "Purchases to match", f"{len(to_review):,}", False, "likely belong to an event"),
+    ("events-review", "Purchases to match", f"{len(to_review):,}", False,
+     "the treasurer confirms these" if scoped else "likely belong to an event"),
 ]
 for column, (name, label, value, currency, caption) in zip(st.columns(4, gap="medium"), tiles):
     with column, shell.card(name, order=2):
@@ -175,65 +214,29 @@ for column, (name, label, value, currency, caption) in zip(st.columns(4, gap="me
 
 # --- Month grid ---------------------------------------------------------------
 
-COLORS = {
-    events_domain.MEMBERSHIP: theme.ACCENT,
-    events_domain.PRESIDENT: theme.INK,
-    events_domain.OPERATIONS: theme.INK_MUTE,
-    events_domain.CONSULTING: "#2F6FDB",
-    events_domain.PROFESSIONAL_DEVELOPMENT: theme.POSITIVE,
-    events_domain.MARKETING: theme.WARNING,
-}
+COLORS = committee_charts.COMMITTEE_COLORS
 
 
 def _color(committee_id) -> str:
     return COLORS.get(int(committee_id), theme.INK_MUTE) if pd.notna(committee_id) else theme.INK_MUTE
 
 
-CALENDAR_CSS = f"""
-<style>
-.ais-cal {{ display:grid; grid-template-columns:repeat(7, minmax(0,1fr)); gap:6px; margin-top:.5rem; }}
-.ais-cal-dow {{ font-size:.72rem; color:{theme.INK_MUTE}; text-transform:uppercase; letter-spacing:.04em; padding:0 6px; }}
-.ais-cal-day {{ background:{theme.CARD}; border-radius:12px; min-height:104px; padding:6px; box-shadow:{theme.SHADOW};
-  display:flex; flex-direction:column; gap:4px; overflow:hidden; }}
-.ais-cal-day.out {{ background:transparent; box-shadow:none; }}
-.ais-cal-day.today {{ outline:2px solid {theme.ACCENT}; }}
-.ais-cal-num {{ font-size:.75rem; color:{theme.INK_SOFT}; font-weight:600; }}
-.ais-cal-ev {{ font-size:.74rem; line-height:1.2; padding:3px 6px; border-radius:6px; background:{theme.SUBTLE};
-  border-left:3px solid var(--c); color:{theme.INK}; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }}
-.ais-cal-ev.past {{ opacity:.82; }}
-.ais-cal-ev b {{ font-weight:600; }}
-.ais-cal-meta {{ display:block; color:{theme.INK_MUTE}; font-size:.68rem; }}
-.ais-cal-ev .spent {{ color:{theme.ACCENT_DIM}; font-weight:600; }}
-</style>
-"""
-
-
 def _month_grid(year: int, month: int, rows: pd.DataFrame) -> str:
-    by_day: dict[date, list] = {}
-    for row in rows.sort_values(["day", "start_time"], na_position="last").itertuples():
-        by_day.setdefault(row.day, []).append(row)
-    cells = [f'<div class="ais-cal-dow">{name}</div>' for name in ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")]
-    for week in calendar.Calendar().monthdatescalendar(year, month):
-        for day in week:
-            classes = ["ais-cal-day"] + (["out"] if day.month != month else []) + (["today"] if day == TODAY else [])
-            chips = []
-            for event in by_day.get(day, []) if day.month == month else []:
-                meta = []
-                if isinstance(event.start_time, str) and event.start_time:
-                    meta.append(escape(event.start_time))
-                if pd.notna(event.attendance):
-                    meta.append(f"{int(event.attendance)} came")
-                if event.Spent > 0:
-                    meta.append(f'<span class="spent">${event.Spent:,.0f}</span>')
-                title = escape(str(event.title))
-                tip = escape(f"{event.title} · {event.location or ''} · {committee_names.get(int(event.committee_id), '') if pd.notna(event.committee_id) else ''}")
-                chips.append(
-                    f'<div class="ais-cal-ev{" past" if day < TODAY else ""}" style="--c:{_color(event.committee_id)}" title="{tip}">'
-                    f'<b>{title}</b><span class="ais-cal-meta">{" · ".join(meta) or "&nbsp;"}</span></div>'
-                )
-            number = day.day if day.month == month else ""
-            cells.append(f'<div class="{" ".join(classes)}"><span class="ais-cal-num">{number}</span>{"".join(chips)}</div>')
-    return CALENDAR_CSS + f'<div class="ais-cal">{"".join(cells)}</div>'
+    chips: dict[date, list[calendar_grid.Chip]] = {}
+    for event in rows.sort_values(["day", "start_time"], na_position="last").itertuples():
+        meta = []
+        if isinstance(event.start_time, str) and event.start_time:
+            meta.append(escape(event.start_time))
+        if pd.notna(event.attendance):
+            meta.append(f"{int(event.attendance)} came")
+        if event.Spent > 0:
+            meta.append(f'<span class="spent">&#36;{event.Spent:,.0f}</span>')
+        owner = committee_names.get(int(event.committee_id), "") if pd.notna(event.committee_id) else ""
+        chips.setdefault(event.day, []).append(calendar_grid.Chip(
+            title=str(event.title), meta_html=" · ".join(meta), color=_color(event.committee_id),
+            tip=f"{event.title} · {event.location or ''} · {owner}",
+        ))
+    return calendar_grid.month_grid(year, month, chips, today=TODAY)
 
 
 if view == "Month":
@@ -285,8 +288,10 @@ shell.heading(
 )
 shell.say(
     "Matched on the date, the merchant appearing in the event's location or name, the kind of "
-    "merchant, and the committee it's already categorized to. Nothing is linked until you tick it. "
-    "Later the Assistant (Haiku) can explain or second-guess these.",
+    "merchant, and the committee it's already categorized to. "
+    + ("Only your committee's purchases are listed. The treasurer confirms each link; if one looks wrong, tell them."
+       if scoped else
+       "Nothing is linked until you tick it. Later the Assistant (Haiku) can explain or second-guess these."),
     caption=True,
 )
 
@@ -297,7 +302,7 @@ shown = [s for s in term_suggestions if s.confidence in (confidence or [])]
 if not shown:
     shell.empty_state("Nothing to match", "No unlinked purchases near this semester's events at that confidence.")
 else:
-    transactions = bundle.transactions.set_index("transactionid")
+    transactions = money.set_index("transactionid")
     event_lookup = all_events.set_index("event_id")
     frame = pd.DataFrame([
         {
@@ -318,7 +323,7 @@ else:
         hide_index=True,
         width="stretch",
         disabled=[c for c in frame.columns if c != "Link"] if can_edit else True,
-        column_order=["Link", "Date", "Purchase", "Amount", "Event", "Confidence", "Why"],
+        column_order=(["Link"] if can_edit else []) + ["Date", "Purchase", "Amount", "Event", "Confidence", "Why"],
         column_config={
             "Link": st.column_config.CheckboxColumn(width="small"),
             "Date": st.column_config.DateColumn(format="MMM D"),
@@ -366,8 +371,13 @@ with info_column, shell.card("events-detail", order=3):
     if pd.notna(event["description"]):
         shell.say(escape(str(event["description"])), caption=True)
 with spend_column, shell.card("events-spend", order=4):
+    if not is_mine(event["committee_id"]):
+        shell.heading("Spending")
+        owner = committee_names.get(int(event["committee_id"]), "that committee") if pd.notna(event["committee_id"]) else "that committee"
+        shell.say(f"What this event cost is visible to the {escape(owner)} VP and the treasurer.", caption=True)
+        st.stop()
     linked_ids = links.loc[links["event_id"] == picked, "transaction_id"].astype(int).tolist() if not links.empty else []
-    purchases = bundle.transactions[bundle.transactions["transactionid"].isin(linked_ids)]
+    purchases = money[money["transactionid"].isin(linked_ids)]
     total = -pd.to_numeric(purchases["amount"], errors="coerce").sum() if not purchases.empty else 0.0
     per_person = (
         f" · {format_currency(total / event['attendance'])} per person"

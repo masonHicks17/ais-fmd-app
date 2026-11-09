@@ -474,9 +474,18 @@ def _apply_demo_profile() -> None:
     if identity is None:
         return
     set_identity(identity)
-    st.session_state["ais_role_picker"] = identity.role
-    if identity.committee_id is not None:
-        st.session_state["ais_committee_picker"] = identity.committee_id
+    st.session_state.pop("ais_signin_picker", None)  # re-derived from the identity on the next run
+
+
+def sandbox_people() -> list[tuple[str, Role, int | None]]:
+    """Who can sign in: (label, role, committee) for the President, Treasurer and each VP."""
+    from .config.vp_committees import PRESIDENT_LINE_ID, VP_COMMITTEES
+
+    return [
+        ("President", Role.PRESIDENT, PRESIDENT_LINE_ID),
+        ("Treasurer", Role.TREASURER, None),
+        *[(f"{committee.title} VP", Role.OFFICER, committee.budget_ids[0]) for committee in VP_COMMITTEES],
+    ]
 
 
 def role_switcher() -> None:
@@ -507,41 +516,37 @@ def role_switcher() -> None:
             ),
         )
 
-    options = list(Role)
-    chosen = st.selectbox(
-        "Role",
-        options,
-        index=options.index(identity.role),
-        format_func=lambda role: role.label,
-        key="ais_role_picker",
-        help=(
-            f"{ROLE_DESCRIPTIONS[identity.role]} "
-            "Sandbox only. In production this comes from the authenticated session."
-        ),
+    # The people who sign in are the committee heads: the President, the
+    # Treasurer (who heads Treasury) and one VP per committee. Members and
+    # admins never sign in, so they are not offered here (2026-11-09).
+    people = sandbox_people()
+    labels = [label for label, _role, _committee in people]
+    current = next(
+        (label for label, role, committee in people
+         if role == identity.role and (role != Role.OFFICER or committee == identity.committee_id)),
+        None,
     )
-    # A VP always belongs to a committee, so testing as one needs a committee
-    # to be chosen too. Without this an Officer would have committee_id None.
-    committee_id = identity.committee_id
-    if chosen == Role.OFFICER:
-        from .config.categories import BUDGETED_COMMITTEE_IDS, committee_name
+    # Changing the identity happens only when someone picks, never because the
+    # picker rendered: an identity not on the list (a test's plain member, a
+    # demo profile) is left as it is and the picker shows nothing chosen.
+    if st.session_state.get("ais_signin_picker") != current:
+        st.session_state["ais_signin_picker"] = current
+    st.selectbox(
+        "Signed in as",
+        labels,
+        index=None,
+        placeholder="Someone else",
+        key="ais_signin_picker",
+        on_change=_apply_sandbox_person,
+        help="Sandbox only. In production this comes from Google sign-in and Officer Access.",
+    )
 
-        options_ids = list(BUDGETED_COMMITTEE_IDS)
-        current = committee_id if committee_id in options_ids else options_ids[0]
-        committee_id = st.selectbox(
-            "Committee",
-            options_ids,
-            index=options_ids.index(current),
-            format_func=committee_name,
-            key="ais_committee_picker",
-            help="Sandbox only. In production this comes from the VP's profile.",
-        )
-    elif chosen == Role.PRESIDENT:
-        # The President's own budget line; their profile carries it in production.
-        from .config.vp_committees import PRESIDENT_LINE_ID
 
-        committee_id = PRESIDENT_LINE_ID
-
-    if chosen != identity.role or committee_id != identity.committee_id:
-        set_identity(Identity(email=identity.email, role=chosen, committee_id=committee_id))
-        st.rerun()
+def _apply_sandbox_person() -> None:
+    chosen = st.session_state.get("ais_signin_picker")
+    person = next((p for p in sandbox_people() if p[0] == chosen), None)
+    if person is None:
+        return
+    _label, role, committee_id = person
+    set_identity(Identity(email=current_user().email, role=role, committee_id=committee_id))
 

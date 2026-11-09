@@ -53,7 +53,7 @@ class PageInfo:
 
 # The pages in `nav.VP_PAGES`, by the names below. Kept here as names because
 # `nav` imports Streamlit and `domain/` must not; a test checks the two agree.
-VP_PAGE_NAMES = frozenset({"My Committee", "My Transactions", "My Plan", "Assistant"})
+VP_PAGE_NAMES = frozenset({"My Committee", "My Transactions", "My Plan", "Events", "Assistant"})
 
 
 PAGES: tuple[PageInfo, ...] = (
