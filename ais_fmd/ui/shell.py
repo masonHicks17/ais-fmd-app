@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import re
 import runpy
+from html import escape
 from urllib.parse import quote
 from pathlib import Path
 from typing import Iterable
@@ -69,14 +70,33 @@ def environment_banner() -> None:
     label = "SANDBOX" if sandbox else "PRODUCTION"
     css_class = "ais-banner" if sandbox else "ais-banner ais-banner-prod"
     st.markdown(
-        f'<div class="{css_class}"><b>{label}</b> — {settings.banner_text()}</div>',
+        # banner_text() starts with the label itself ("SANDBOX — ..."); show it once, in bold.
+        f'<div class="{css_class}"><b>{label}</b> — {settings.banner_text().removeprefix(label).lstrip(" —")}</div>',
         unsafe_allow_html=True,
     )
 
 
-def page_header(title: str, subtitle: str = "") -> None:
+def tip(text: str) -> str:
     """
-    Title and one line of context.
+    A small "?" that shows `text` on hover or keyboard focus (2026-11-13).
+
+    Descriptions used to sit under titles and charts as grey paragraphs, which
+    pushed the figures down the page. They live here now, beside the title
+    they explain. Markdown bold is dropped: the tooltip is plain text.
+    """
+    if not text:
+        return ""
+    plain = escape(" ".join(str(text).replace("**", "").split()))
+    return f'<span class="ais-tip" tabindex="0" role="note" aria-label="{plain}" data-tip="{plain}">?</span>'
+
+
+def page_header(title: str, description: str = "", *, context: str = "") -> None:
+    """
+    Title, with what the page is for in a "?" beside it.
+
+    `description` (what the page does) goes in the tooltip; `context` (a fact
+    that changes, e.g. "Fall 2026 · week 13 of 18") stays visible under the
+    title.
 
     When the page is running inside a hub, the hub's view switcher renders
     here, beside the title, so every merged page gets it without changes.
@@ -92,7 +112,7 @@ def page_header(title: str, subtitle: str = "") -> None:
     else:
         title_column, switch_column = st.container(), None
     with title_column:
-        body = f"<h1>{title}</h1>" + (f"<p>{subtitle}</p>" if subtitle else "")
+        body = f"<h1>{title}{tip(description)}</h1>" + (f"<p>{context}</p>" if context else "")
         html(f'<div class="ais-head">{body}</div>')
     if pending and switch_column is not None:
         key, labels = pending
@@ -103,10 +123,10 @@ def page_header(title: str, subtitle: str = "") -> None:
     st.markdown('<hr class="ais-rule" />', unsafe_allow_html=True)
 
 
-def section_header(title: str, subtitle: str = "", *, anchor: str | None = None) -> None:
+def section_header(title: str, subtitle: str = "", *, anchor: str | None = None, help: str = "") -> None:
     """A second title further down a page, e.g. Home's "This term in detail"."""
     id_attr = f' id="{anchor}"' if anchor else ""
-    body = f"<h2>{title}</h2>" + (f"<p>{subtitle}</p>" if subtitle else "")
+    body = f"<h2>{title}{tip(help)}</h2>" + (f"<p>{subtitle}</p>" if subtitle else "")
     html(f'<div class="ais-section"{id_attr}>{body}</div>')
 
 
@@ -132,9 +152,9 @@ def card(name: str, *, order: int = 1, hero: bool = False):
     return st.container(key=f"{prefix}-o{min(max(int(order), 1), 9)}-{name}")
 
 
-def heading(title: str, right: str = "") -> None:
-    """Card title row, with optional right-aligned HTML (a pill, a legend)."""
-    html(f'<div class="ais-card-head"><span>{title}</span>{right}</div>')
+def heading(title: str, right: str = "", *, help: str = "") -> None:
+    """Card title row, with optional right-aligned HTML (a pill, a legend) and a "?" tooltip."""
+    html(f'<div class="ais-card-head"><span>{title}{tip(help)}</span>{right}</div>')
 
 
 def legend(items: list[tuple[str, str]]) -> str:
@@ -216,41 +236,6 @@ def notify(kind: str, text: str) -> None:
     {"success": st.success, "warning": st.warning, "info": st.info}[kind](money_safe(text))
 
 
-def pace_rows(table: pd.DataFrame, fraction: float, *, rows: int = 3) -> str:
-    """
-    "Committees to watch" as progress rows (2026-11-09): the committee's name
-    and its share of budget used on one line, a bar beneath, and a tick on the
-    bar at how far the term has gone. Replaced a dot chart whose tick and dot
-    sat on top of each other in a narrow card.
-
-    `table` is `pace.committee_pace(...)`: Committee_Name, Budget, Spent, Used,
-    Runs out, Status. `fraction` is the share of the term elapsed (0-1).
-    """
-    from html import escape
-
-    t = theme.tokens()
-    mark = max(0.0, min(fraction * 100, 100.0))
-    out = []
-    for row in table.head(rows).itertuples():
-        used = float(row.Used)
-        color = t.STATUS_COLORS.get(str(row.Status), t.ON_TRACK)
-        detail = f"{format_currency(float(row.Spent))} of {format_currency(float(row.Budget))}"
-        runs_out = getattr(row, "_7", None) if not hasattr(row, "Runs_out") else None
-        runs_out = row[7] if runs_out is None and len(row) > 7 else runs_out
-        if runs_out is not None and not pd.isna(runs_out) and used < 100:
-            detail += f" · runs out {pd.Timestamp(runs_out):%b %d}"
-        if used >= 100:
-            detail += " · over budget"
-        out.append(
-            '<div class="ais-pace-row">'
-            f'<div class="ais-pace-head"><span>{escape(str(row.Committee_Name))}</span><b>{used:.0f}%</b></div>'
-            f'<div class="ais-meter-track"><div class="ais-meter-fill" style="width:{min(used, 100):.1f}%;background:{color}"></div>'
-            f'<div class="ais-meter-mark" style="left:{mark:.1f}%"></div></div>'
-            f'<small>{detail}</small></div>'
-        )
-    return '<div class="ais-pace-rows">' + "".join(out) + "</div>"
-
-
 def pill(label: str, kind: str = "muted") -> str:
     mapping = {
         "over": "ais-over",
@@ -277,9 +262,10 @@ def metric(
     bar_hover: list[str] | None = None,
     bar_note: str | None = None,
     tone: str | None = None,
+    help: str | None = None,
 ) -> None:
     """
-    One KPI. `bar_labels` captions each mini bar ("F24"), `bar_hover` is each
+    One KPI. `help` puts a "?" beside the label with that text on hover. `bar_labels` captions each mini bar ("F24"), `bar_hover` is each
     bar's full reading, `bar_note` one line under the bars saying what they are.
 
     `tone` ("ok", "warn", "over") tints the tile and colours its value by status.
@@ -324,6 +310,7 @@ def metric(
         value=display_value,
         delta=display_delta,
         delta_color="inverse" if inverse else "normal",
+        help=money_safe(help) if help else None,
     )
     if bars:
         trend = [float(v or 0) for v in bars]

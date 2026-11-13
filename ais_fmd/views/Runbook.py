@@ -82,9 +82,11 @@ Roughly 20 minutes if nothing is unusual.
 the full statement period, not a filtered view — the importer rejects duplicates,
 so overlapping ranges are safe and gaps are not.
 
-**2. Import them.** Transactions → Import. The parser validates the file's
-shape before reading it and will refuse a file whose layout it does not
-recognise, rather than importing nonsense. Read any warning it shows.
+**2. Check them against the app.** Treasury → Reconcile → Bank statement.
+Transactions arrive by the automatic sync; the upload lists any rows the sync
+missed (tick them to import) and any the app has that the statement does not.
+The parser refuses a file whose layout it does not recognise, rather than
+reading nonsense. Read any warning it shows.
 
 **3. Record the statement balances.** Reconciliation → Record a statement period.
 Take the opening and closing balance straight off the statement header. This is

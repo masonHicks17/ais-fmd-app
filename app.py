@@ -46,7 +46,7 @@ auth.login_gate()
 # (views/*Hub.py) that run the original, unchanged view files one at a time:
 #
 #   Dues          = Dues + Roster
-#   Transactions  = Import + Transactions + Review Queue
+#   Transactions  = Transactions + Review Queue (Import moved to Treasury -> Reconcile)
 #   Assistant     = Assistant + Runbook (as "Help")
 #   Alerts & Data Quality = Alerts & Reports + Data Quality
 #   Settings      = Officer Access + Audit Log

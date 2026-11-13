@@ -242,6 +242,26 @@ class Backend(ABC):
     def unlink_transaction_from_event(self, transaction_id: int, actor: str) -> UpdateResult:
         return self._unsupported("Linking spending to events")
 
+    def add_event(self, event: dict, actor: str) -> UpdateResult:
+        return self._unsupported("Adding events")
+
+    def update_event(self, event_id: int, changes: dict, actor: str) -> UpdateResult:
+        return self._unsupported("Editing events")
+
+    def delete_event(self, event_id: int, actor: str) -> UpdateResult:
+        return self._unsupported("Removing events")
+
+    def fetch_event_costs(self) -> pd.DataFrame:
+        return pd.DataFrame(columns=["cost_id", "event_id", "kind", "label", "amount", "added_by", "added_at"])
+
+    def add_event_cost(
+        self, event_id: int, kind: str, label: str, amount: float, actor: str
+    ) -> UpdateResult:
+        return self._unsupported("Event costs")
+
+    def delete_event_cost(self, cost_id: int, actor: str) -> UpdateResult:
+        return self._unsupported("Event costs")
+
     def fetch_profiles(self) -> pd.DataFrame:
         return pd.DataFrame()
 

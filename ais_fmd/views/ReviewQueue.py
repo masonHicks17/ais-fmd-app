@@ -48,7 +48,7 @@ shell.page_header(
 transactions = repo.load_transactions()
 
 if transactions.empty:
-    shell.empty_state("No transactions yet", "Upload a statement from Transactions → Import.")
+    shell.empty_state("No transactions yet", "Transactions arrive by the automatic sync, or check a statement on Treasury → Reconcile.")
     st.stop()
 
 # Charges a VP has disputed ("This isn't ours"). One call; the panel lives in
@@ -461,13 +461,14 @@ if submitted:
 # --- Confidence distribution -------------------------------------------------
 
 with st.expander("Suggestion confidence across the queue"):
+    shell.heading(
+        "How it is scored",
+        help="Cards on the roster and exact rules score 1.0, heuristic rules 0.85–0.9, "
+        "model suggestions carry the model's own confidence. Zero means nothing matched.",
+    )
     shell.chart(
         charts.confidence_histogram(
             [value for value in pending["confidence"].tolist() if value > 0]
         ),
         key="queue_confidence",
-    )
-    st.caption(
-        "Cards on the roster and exact rules score 1.0, heuristic rules 0.85–0.9, "
-        "model suggestions carry the model's own confidence. Zero means nothing matched."
     )

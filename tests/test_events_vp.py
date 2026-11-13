@@ -177,8 +177,8 @@ def test_a_vp_can_add_an_unlinked_purchase_of_theirs_to_their_event(events_db):
 def test_a_vp_cannot_sync_move_or_unlink(events_db):
     app = run_as(auth.Role.OFFICER, MEMBERSHIP)
     labels = {button.label for button in app.button}
-    assert "Unlink" not in labels and "Sync these events" not in labels
-    assert not app.get("popover"), "no 'Sync from a file' for a VP"
+    assert "Unlink" not in labels and "Check a schedule file" not in labels
+    assert not app.get("file_uploader"), "schedule files are the treasurer's, on Treasury → Reconcile"
 
 
 def test_the_treasurer_still_sees_every_committees_money(events_db):

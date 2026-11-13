@@ -57,7 +57,9 @@ def test_my_committee_compares_this_term_with_the_same_point_in_past_terms(seede
     # This term is the first row, marked Now, ahead of the past terms.
     assert table.index("Fall 2026") < table.index("Spring 2026")
     assert "ais-chip-now" in table
-    assert any("by the same point" in caption.value for caption in app.caption)
+    # What the bars mean is in the section title's "?" (2026-11-13); how far through the term stays visible.
+    assert any("by the same point" in block.value for block in app.markdown)
+    assert any("of the way through the term" in caption.value for caption in app.caption)
 
 
 def test_the_section_stays_quiet_when_it_is_too_early_in_the_term(seeded_db, use_db, monkeypatch):

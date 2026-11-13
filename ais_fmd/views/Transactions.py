@@ -48,7 +48,7 @@ bundle = repo.load_bundle()
 semesters = ordered_semesters(bundle.terms)
 
 if bundle.transactions.empty:
-    shell.empty_state("No transactions yet", "Upload a statement from Transactions → Import.")
+    shell.empty_state("No transactions yet", "Transactions arrive by the automatic sync, or check a statement on Treasury → Reconcile.")
     st.stop()
 
 # --- Filters -----------------------------------------------------------------
@@ -265,6 +265,7 @@ with save_column:
         f"Save {pending} change{'s' if pending != 1 else ''}",
         type="primary",
         disabled=not pending,
+        help="Only rows that differ from what is stored are written.",
     )
 with status_column:
     if pending:
@@ -273,7 +274,7 @@ with status_column:
             parts.append(f"{len(changes)} row(s) differ from what is stored")
         if confirmations:
             parts.append(f"{len(confirmations)} event match(es) to confirm")
-        st.caption("; ".join(parts) + ". Unchanged rows are not written.")
+        st.caption("; ".join(parts) + ".")
     else:
         st.caption("No changes staged.")
 

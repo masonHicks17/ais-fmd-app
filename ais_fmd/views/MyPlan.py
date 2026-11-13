@@ -133,7 +133,11 @@ def _plan_editor(semester: str, saved: pd.DataFrame, sheet: pd.DataFrame, compar
         "amount": st.column_config.NumberColumn(
             "Planned", min_value=0.0, max_value=plan.MAX_AMOUNT, step=10.0, format="dollar"
         ),
-        "compare": st.column_config.NumberColumn(compare, format="dollar", disabled=True),
+        "compare": st.column_config.NumberColumn(
+            compare, format="dollar", disabled=True,
+            help="Bank charges are only ever tagged with the listed categories, so your own ones show $0 spent."
+            if compare == "Spent" and plan.custom_categories(saved) else None,
+        ),
         "left": st.column_config.NumberColumn("Left", format="dollar", disabled=True),
         "note": st.column_config.TextColumn("Note", max_chars=plan.MAX_NOTE_LENGTH),
     }
@@ -160,13 +164,11 @@ def _plan_editor(semester: str, saved: pd.DataFrame, sheet: pd.DataFrame, compar
         frame, column_config=config, column_order=["remove", *order],
         num_rows="dynamic", hide_index=True, width="stretch", key=f"{key}_editor",
     )
-    st.caption(
-        "Add a category in the bottom row: pick one from the list, or type your own and press "
-        "Enter. Tick Remove (or clear Planned) to drop one. Then Save plan."
-    )
-    if compare == "Spent" and plan.custom_categories(saved):
-        st.caption("Bank charges are only ever tagged with the listed categories, so your own ones show $0 spent.")
-    if st.button("Save plan", key=f"{key}_save", type="primary"):
+    if st.button(
+        "Save plan", key=f"{key}_save", type="primary",
+        help="Add a category in the bottom row: pick one from the list, or type your own and press "
+             "Enter. Tick Remove (or clear Planned) to drop one. Then Save plan.",
+    ):
         kept, removed = plan.drop_removed(edited)
         # A row with no planned amount is a category the VP isn't planning (for
         # example one that only has spending): it isn't saved, and isn't an error.
@@ -208,10 +210,6 @@ def _from_history(semester: str, saved: pd.DataFrame, bases: dict[str, str], key
         if by_purpose.empty:
             st.caption(f"{title} has no spending recorded in {past}, so there's nothing to copy.")
             return
-        st.caption(
-            f"What {title} spent in {past}, by category, rounded up to $5. Using it sets those "
-            f"categories' planned amounts and keeps the rest of your plan."
-        )
         # Leave it empty for every category, or pick just the ones to fill in.
         chosen = st.multiselect(
             "Only these categories", list(by_purpose["Purpose"]), key=f"{key}_pick",
@@ -225,7 +223,10 @@ def _from_history(semester: str, saved: pd.DataFrame, bases: dict[str, str], key
                 "Spent then": picked["Amount"].values,
                 "Plan": [plan.round_up(float(amount)) for amount in picked["Amount"]],
             }),
-            column_config={"Spent then": _MONEY, "Plan": _MONEY},
+            column_config={
+                "Spent then": st.column_config.NumberColumn(format="dollar", help=f"What {title} spent in {past}."),
+                "Plan": st.column_config.NumberColumn(format="dollar", help="What was spent then, rounded up to $5."),
+            },
         )
         what = (
             "all categories" if not chosen
@@ -233,7 +234,8 @@ def _from_history(semester: str, saved: pd.DataFrame, bases: dict[str, str], key
             else f"{len(chosen)} categories"
         )
         total = sum(line["amount"] for line in new_lines)
-        if st.button(f"Use for {what} ({format_currency(total)})", key=f"{key}_use"):
+        if st.button(f"Use for {what} ({format_currency(total)})", key=f"{key}_use",
+                     help="Sets those categories' planned amounts and keeps the rest of your plan."):
             existing, _ = plan.clean_lines(saved) if not saved.empty else ([], [])
             lines = plan.merge_lines(existing, new_lines)
             _save(semester, lines, f"Filled in {what} from {past}. Change any you like.")
@@ -322,13 +324,19 @@ def _projection(budget: float | None, spent: float, planned: pd.DataFrame, semes
     figures = event_ideas.projection(budget, spent, planned, today=TODAY)
     room = figures["room"]
     tone = {"over": "over", "tight": "warn", "room": "ok"}.get(figures["status"])
-    shell.metric_row([
-        {"label": "Budget", "value": _dollars(budget), "currency": False},
-        {"label": "Spent so far", "value": _dollars(spent), "currency": False},
-        {"label": "Planned events ahead", "value": _dollars(figures["ahead"]), "currency": False},
+    tiles = [
+        {"label": "Budget", "value": _dollars(budget)},
+        {"label": "Spent so far", "value": _dollars(spent), "help": "What the bank has reported."},
+        {"label": "Planned events ahead", "value": _dollars(figures["ahead"]),
+         "help": "Only your estimates. An event drops out of them once its date passes, because its "
+                 "real cost is in Spent by then."},
         {"label": "Over the budget" if room is not None and room < 0 else "Room for extras",
-         "value": _dollars(abs(room) if room is not None else None), "currency": False, "tone": tone},
-    ])
+         "value": _dollars(abs(room) if room is not None else None), "tone": tone},
+    ]
+    # shell.metric_row, with each tile's "?" (metric_row doesn't pass help on).
+    for column, tile in zip(st.columns(len(tiles)), tiles):
+        shell.metric(column, tile["label"], tile["value"], currency=False,
+                     tone=tile.get("tone"), help=tile.get("help"))
     if not budget:
         shell.say(f"{title} has no budget for {semester}, so there's nothing to project against.", caption=True)
         return
@@ -353,11 +361,8 @@ def _projection(budget: float | None, spent: float, planned: pd.DataFrame, semes
         if figures["status"] == "tight":
             line += " That's under a tenth of the budget, so keep spontaneous spending small."
         shell.say(line)
-    notes = ["Spent is what the bank has reported. Planned events are only your estimates, "
-             "and an event drops out of them once its date passes, because its real cost is in Spent by then."]
     if figures["passed_count"]:
-        notes.append(f"{figures['passed_count']} planned event(s) have passed and no longer count.")
-    st.caption(" ".join(notes))
+        st.caption(f"{figures['passed_count']} planned event(s) have passed and no longer count.")
 
 
 def _plan_calendar(planned: pd.DataFrame, window: tuple[date, date] | None, key: str) -> None:
@@ -412,11 +417,8 @@ def _plan_calendar(planned: pd.DataFrame, window: tuple[date, date] | None, key:
         ))
     shell.html(calendar_grid.month_grid(year, month, chips, today=TODAY))
     undated = planned[pd.to_datetime(planned["event_date"], errors="coerce").isna()] if not planned.empty else planned
-    caption = ("Dashed: your planned events, with their estimated cost. Solid: what's on the club calendar; "
-               f"\"spent\" is what the bank reported for {title}'s own events.")
     if not undated.empty:
-        caption += f" Not dated yet: {', '.join(undated['title'].astype(str))}."
-    st.caption(caption)
+        st.caption(f"Not dated yet: {', '.join(undated['title'].astype(str))}.")
 
 
 def _plan_cards(planned: pd.DataFrame) -> None:
@@ -498,8 +500,10 @@ def _planned_editor(semester: str, planned: pd.DataFrame, window, key: str) -> N
             frame, column_config=config, column_order=order, num_rows="dynamic",
             hide_index=True, width="stretch", key=f"{key}_editor_{_version(key)}",
         )
-        st.caption("Add an event in the bottom row, or pick ideas below. Tick Remove to drop one; you'll be asked first.")
-        save = st.button("Save events", type="primary", key=f"{key}_save")
+        save = st.button(
+            "Save events", type="primary", key=f"{key}_save",
+            help="Add an event in the bottom row, or pick ideas below. Tick Remove to drop one; you'll be asked first.",
+        )
     if save:
         kept = edited[~edited["remove"].fillna(False).astype(bool)]
         events, problems = event_ideas.clean_planned_events(kept, window, semester)
@@ -519,7 +523,11 @@ def _planned_editor(semester: str, planned: pd.DataFrame, window, key: str) -> N
 
 
 def _ideas(semester: str, planned: pd.DataFrame, key: str) -> None:
-    st.markdown("**Ideas from past events**")
+    shell.html("**Ideas from past events**" + shell.tip(
+        f"From {title}'s past events. Cost counts only purchases the treasurer has linked to an event, "
+        "so a blank cost means none were linked yet. Tailgates and watch parties are planned as one kind: "
+        "pick the game when the schedule is out."
+    ))
     all_events = repo.load_events()
     mine = all_events[all_events["committee_id"].isin(line_ids)] if not all_events.empty else all_events
     try:
@@ -559,11 +567,6 @@ def _ideas(semester: str, planned: pd.DataFrame, key: str) -> None:
         shown, column_config=config, hide_index=True, width="stretch", height=320,
         disabled=[c for c in shown.columns if c != "add"], key=f"{key}_ideas_{_version(key)}",
     )
-    st.caption(
-        f"From {title}'s past events. Cost counts only purchases the treasurer has linked to an event, "
-        "so a blank cost means none were linked yet. Tailgates and watch parties are planned as one kind: "
-        "pick the game when the schedule is out."
-    )
     chosen = table[edited["add"].fillna(False).astype(bool).values]
     if st.button(f"Add {len(chosen)} to the plan", disabled=chosen.empty, key=f"{key}_add"):
         events = _as_rows(planned) + event_ideas.plan_rows_from_ideas(chosen)
@@ -571,10 +574,14 @@ def _ideas(semester: str, planned: pd.DataFrame, key: str) -> None:
 
 
 def _event_plan(semester: str, planned: pd.DataFrame | None, key: str, *, estimate: float | None = None) -> None:
-    st.markdown("#### Events")
     if planned is None:
+        st.markdown("#### Events")
         st.caption("Event plans can't be saved on this site yet. The treasurer has to switch the feature on first.")
         return
+    shell.html("#### Events" + shell.tip(
+        "On the calendar, dashed: your planned events, with their estimated cost. Solid: what's on the "
+        f"club calendar; \"spent\" is what the bank reported for {title}'s own events."
+    ))
     window = _window(semester)
     total = float(pd.to_numeric(planned["estimated_cost"], errors="coerce").sum()) if not planned.empty else 0.0
     if planned.empty:
@@ -590,14 +597,15 @@ def _event_plan(semester: str, planned: pd.DataFrame | None, key: str, *, estima
     _plan_calendar(planned, window, key)
     _planned_editor(semester, planned, window, key)
     _ideas(semester, planned, key)
-    st.markdown("#### Other spending, by category")
-    st.caption("Spending that isn't tied to one event: supplies, software, merch.")
+    shell.html("#### Other spending, by category"
+               + shell.tip("Spending that isn't tied to one event: supplies, software, merch."))
 
 
-st.markdown(f"**Committee**  \n{title}")
 if can_edit:
-    st.caption("Your plan is your own estimate. It doesn't move or reserve any money.")
+    shell.html("**Committee**" + shell.tip("Your plan is your own estimate. It doesn't move or reserve any money.")
+               + f"  \n{title}")
 else:
+    st.markdown(f"**Committee**  \n{title}")
     st.caption(f"Read-only: only {title}'s VP edits this plan.")
 
 # A switch rather than tabs: tabs jump back to the first one after every save.
@@ -723,11 +731,11 @@ else:
                 caption=True,
             )
         if can_edit:
-            st.caption("The treasurer sets every budget. This tells them what you'd like and why.")
             amount = st.number_input(
                 "Amount", min_value=0.0, max_value=plan.MAX_AMOUNT,
                 value=float(sent["amount"]) if sent is not None else plan.default_request(planned_next, estimate),
                 step=10.0, format="%.2f", key="plan_request_amount",
+                help="The treasurer sets every budget. This tells them what you'd like and why.",
             )
             reason = st.text_area(
                 "What it's for", value="" if sent is None else str(sent["reason"]),

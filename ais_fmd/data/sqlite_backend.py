@@ -13,6 +13,7 @@ Properties that make this safe to hand to someone for testing:
 
 from __future__ import annotations
 
+import re
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
@@ -358,10 +359,30 @@ CREATE TABLE IF NOT EXISTS events (
     source            TEXT,
     calendar_id       TEXT,
     synced_by         TEXT,
-    synced_at         TEXT DEFAULT CURRENT_TIMESTAMP
+    synced_at         TEXT DEFAULT CURRENT_TIMESTAMP,
+    -- 1 once someone adds, moves or edits the event in the app; a sync of the
+    -- same event from the calendar sets it back to 0. "Export changes" sends
+    -- only these to Google Calendar.
+    edited_in_app     INTEGER NOT NULL DEFAULT 0,
+    edited_at         TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_events_term ON events (term_id, event_date);
+
+-- Costs typed against an event (2026-11-13): an estimate before it happens,
+-- or a cost the bank statement will never show (cash, a member's card not yet
+-- reimbursed). Purchases from the statement are linked in event_links instead.
+CREATE TABLE IF NOT EXISTS event_costs (
+    cost_id    INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id   INTEGER NOT NULL,
+    kind       TEXT NOT NULL CHECK (kind IN ('estimate', 'manual')),
+    label      TEXT NOT NULL,
+    amount     REAL NOT NULL,
+    added_by   TEXT,
+    added_at   TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_event_costs_event ON event_costs (event_id);
 
 -- Which event a transaction paid for. One event per transaction; confirmed by
 -- a person (a suggestion from domain/events.suggest_links is not stored).
@@ -507,6 +528,10 @@ class SqliteBackend(Backend):
                 ("dues_late_price", "REAL"),
                 ("dues_increase_date", "TEXT"),
                 ("dues_late_cutoff", "TEXT"),
+            ],
+            "events": [
+                ("edited_in_app", "INTEGER NOT NULL DEFAULT 0"),
+                ("edited_at", "TEXT"),
             ],
             "transactions": [
                 # Who a sponsorship deposit was actually from. Free text: bank
@@ -1423,7 +1448,8 @@ class SqliteBackend(Backend):
                     f"INSERT INTO events (external_key, {', '.join(fields)}, synced_by) "
                     f"VALUES ({', '.join('?' * (len(fields) + 2))}) "
                     f"ON CONFLICT(external_key) DO UPDATE SET {assignments}, "
-                    "synced_by = excluded.synced_by, synced_at = CURRENT_TIMESTAMP",
+                    "synced_by = excluded.synced_by, synced_at = CURRENT_TIMESTAMP, "
+                    "edited_in_app = 0",
                     [
                         (event["external_key"], *(event.get(f) for f in fields), actor)
                         for event in events
@@ -1518,6 +1544,135 @@ class SqliteBackend(Backend):
                 )
                 connection.commit()
             result.updated = 1
+        except sqlite3.Error as exc:
+            result.error = str(exc)
+        return result
+
+    def add_event(self, event: dict, actor: str) -> UpdateResult:
+        """
+        Add one event typed in the app. `updated` is the new event_id. Refused
+        when an event with the same day and title already exists.
+        """
+        result = UpdateResult()
+        fields = self.EVENT_FIELDS
+        try:
+            with self._connect() as connection:
+                if connection.execute(
+                    "SELECT 1 FROM events WHERE external_key = ?", (event["external_key"],)
+                ).fetchone():
+                    result.error = "There is already an event with that title on that day."
+                    return result
+                cursor = connection.execute(
+                    f"INSERT INTO events (external_key, {', '.join(fields)}, synced_by, "
+                    "edited_in_app, edited_at) "
+                    f"VALUES ({', '.join('?' * (len(fields) + 2))}, 1, CURRENT_TIMESTAMP)",
+                    (event["external_key"], *(event.get(f) for f in fields), actor),
+                )
+                connection.commit()
+            result.updated = int(cursor.lastrowid)
+        except sqlite3.Error as exc:
+            result.error = str(exc)
+        return result
+
+    EDITABLE_EVENT_FIELDS = (
+        "event_date", "title", "start_time", "end_time", "location", "owner",
+        "audience", "status", "committee_id", "description", "term_id",
+    )
+
+    def update_event(self, event_id: int, changes: dict, actor: str) -> UpdateResult:
+        """
+        Edit or move an event. The day|title key follows the change, so a later
+        sync of the same event from Google Calendar updates it rather than
+        adding a copy.
+        """
+        result = UpdateResult()
+        changes = {k: v for k, v in changes.items() if k in self.EDITABLE_EVENT_FIELDS}
+        if not changes:
+            result.unchanged = 1
+            return result
+        try:
+            with self._connect() as connection:
+                row = connection.execute(
+                    "SELECT event_date, title FROM events WHERE event_id = ?", (event_id,)
+                ).fetchone()
+                if row is None:
+                    result.error = "That event no longer exists."
+                    return result
+                day = str(changes.get("event_date", row["event_date"]))[:10]
+                title = str(changes.get("title", row["title"]))
+                key = f"{day}|{re.sub(r'[^a-z0-9]+', ' ', title.lower()).strip()}"
+                clash = connection.execute(
+                    "SELECT 1 FROM events WHERE external_key = ? AND event_id <> ?", (key, event_id)
+                ).fetchone()
+                if clash:
+                    result.error = "There is already an event with that title on that day."
+                    return result
+                assignments = ", ".join(f"{name} = ?" for name in changes)
+                connection.execute(
+                    f"UPDATE events SET {assignments}, external_key = ?, edited_in_app = 1, "
+                    "edited_at = CURRENT_TIMESTAMP, synced_by = ? WHERE event_id = ?",
+                    (*changes.values(), key, actor, event_id),
+                )
+                connection.commit()
+            result.updated = 1
+        except sqlite3.Error as exc:
+            result.error = str(exc)
+        return result
+
+    def delete_event(self, event_id: int, actor: str) -> UpdateResult:
+        """Remove an event and its typed costs. Refused while purchases are linked to it."""
+        result = UpdateResult()
+        try:
+            with self._connect() as connection:
+                linked = connection.execute(
+                    "SELECT COUNT(*) FROM event_links WHERE event_id = ?", (event_id,)
+                ).fetchone()[0]
+                if linked:
+                    result.error = (
+                        f"{linked} purchase(s) are linked to this event. Move or unlink them first."
+                    )
+                    return result
+                connection.execute("DELETE FROM event_costs WHERE event_id = ?", (event_id,))
+                cursor = connection.execute("DELETE FROM events WHERE event_id = ?", (event_id,))
+                connection.commit()
+            result.updated = cursor.rowcount
+        except sqlite3.Error as exc:
+            result.error = str(exc)
+        return result
+
+    def fetch_event_costs(self) -> pd.DataFrame:
+        return self._read("SELECT * FROM event_costs ORDER BY event_id, kind, added_at")
+
+    def add_event_cost(
+        self, event_id: int, kind: str, label: str, amount: float, actor: str
+    ) -> UpdateResult:
+        result = UpdateResult()
+        if kind not in ("estimate", "manual"):
+            result.error = f"Unknown cost kind: {kind}"
+            return result
+        try:
+            with self._connect() as connection:
+                if connection.execute("SELECT 1 FROM events WHERE event_id = ?", (event_id,)).fetchone() is None:
+                    result.error = "That event no longer exists."
+                    return result
+                cursor = connection.execute(
+                    "INSERT INTO event_costs (event_id, kind, label, amount, added_by) VALUES (?, ?, ?, ?, ?)",
+                    (int(event_id), kind, label.strip() or ("Estimate" if kind == "estimate" else "Cost"),
+                     round(float(amount), 2), actor),
+                )
+                connection.commit()
+            result.updated = int(cursor.lastrowid)
+        except sqlite3.Error as exc:
+            result.error = str(exc)
+        return result
+
+    def delete_event_cost(self, cost_id: int, actor: str) -> UpdateResult:
+        result = UpdateResult()
+        try:
+            with self._connect() as connection:
+                cursor = connection.execute("DELETE FROM event_costs WHERE cost_id = ?", (int(cost_id),))
+                connection.commit()
+            result.updated = cursor.rowcount
         except sqlite3.Error as exc:
             result.error = str(exc)
         return result
@@ -2210,9 +2365,10 @@ def _columns_for(query: str) -> list[str]:
             "event_id", "external_key", "term_id", "event_date", "title", "start_time",
             "end_time", "location", "owner", "audience", "status", "committee_id",
             "attendance", "attendance_source", "description", "source", "calendar_id",
-            "synced_by", "synced_at",
+            "synced_by", "synced_at", "edited_in_app", "edited_at",
         ],
         "event_links": ["transaction_id", "event_id", "linked_by", "linked_at"],
+        "event_costs": ["cost_id", "event_id", "kind", "label", "amount", "added_by", "added_at"],
         "budget_requests": [
             "request_id", "committee_id", "semester", "amount", "reason",
             "requested_by", "requested_at",

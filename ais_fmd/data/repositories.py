@@ -668,6 +668,57 @@ def unlink_transaction_from_event(transaction_id: int, actor: str) -> UpdateResu
     return result
 
 
+@st.cache_data(ttl=300, show_spinner=False)
+def _event_costs(version: int) -> pd.DataFrame:
+    return backend().fetch_event_costs()
+
+
+def load_event_costs() -> pd.DataFrame:
+    """Estimates and typed costs per event (not the linked bank purchases)."""
+    return _event_costs(data_version())
+
+
+@_blocked_when_read_only(_update_refusal)
+def add_event(event: dict, actor: str) -> UpdateResult:
+    """Add one event; `updated` on the result is the new event_id."""
+    result = backend().add_event(event, actor)
+    if result.ok:
+        invalidate()
+    return result
+
+
+@_blocked_when_read_only(_update_refusal)
+def update_event(event_id: int, changes: dict, actor: str) -> UpdateResult:
+    result = backend().update_event(event_id, changes, actor)
+    if result.updated:
+        invalidate()
+    return result
+
+
+@_blocked_when_read_only(_update_refusal)
+def delete_event(event_id: int, actor: str) -> UpdateResult:
+    result = backend().delete_event(event_id, actor)
+    if result.updated:
+        invalidate()
+    return result
+
+
+@_blocked_when_read_only(_update_refusal)
+def add_event_cost(event_id: int, kind: str, label: str, amount: float, actor: str) -> UpdateResult:
+    result = backend().add_event_cost(event_id, kind, label, amount, actor)
+    if result.ok:
+        invalidate()
+    return result
+
+
+@_blocked_when_read_only(_update_refusal)
+def delete_event_cost(cost_id: int, actor: str) -> UpdateResult:
+    result = backend().delete_event_cost(cost_id, actor)
+    if result.updated:
+        invalidate()
+    return result
+
+
 # --- Committee plans and budget requests --------------------------------------
 
 @st.cache_data(ttl=60, show_spinner=False)

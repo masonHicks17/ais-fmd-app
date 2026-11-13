@@ -42,9 +42,14 @@ def pace_chart(
         return charts.empty_figure("No budget or spending to plot yet.")
 
     p = theme.active()
+    t = theme.tokens()
     last_spent = float(spend["spent"].iloc[-1]) if not spend.empty else 0.0
     over = budget > 0 and last_spent > budget
-    spend_color = p.over if over else p.expense
+    # The accent, not the grey expense ink: in dark mode the grey and the
+    # near-grid budget colour all but vanished (2026-11-13). Going over is told
+    # by the budget line instead, which turns orange and says so.
+    spend_color = t.ACCENT
+    pace_color = t.INK_SOFT
 
     figure = go.Figure()
     figure.add_trace(
@@ -53,7 +58,7 @@ def pace_chart(
             x=[start, end],
             y=[0.0, float(budget)],
             mode="lines",
-            line=dict(color=p.budget, width=1.6, dash="dash"),
+            line=dict(color=pace_color, width=1.8, dash="dash"),
             hovertemplate="On pace  $%{y:,.2f}<extra></extra>",
         )
     )
@@ -64,7 +69,7 @@ def pace_chart(
                 x=spend["date"],
                 y=spend["spent"],
                 mode="lines",
-                line=dict(color=spend_color, width=2.2),
+                line=dict(color=spend_color, width=2.6),
                 fill="tozeroy",
                 fillcolor=_translucent(spend_color, 0.12 * theme.active().fill_scale),
                 hovertemplate="%{x|%b %d}  $%{y:,.2f}<extra></extra>",
@@ -76,12 +81,12 @@ def pace_chart(
             type="line",
             xref="x", x0=start, x1=end,
             yref="y", y0=float(budget), y1=float(budget),
-            line=dict(color=p.budget, width=1, dash="dot"),
+            line=dict(color=p.over if over else t.INK_MUTE, width=1.6 if over else 1.2, dash="dot"),
         )
         figure.add_annotation(
             x=end, y=float(budget), xanchor="right", yanchor="bottom",
-            text="Budget", showarrow=False,
-            font=dict(color=p.ink_mute, size=10),
+            text=f"{'Over budget' if over else 'Budget'} ${float(budget):,.0f}", showarrow=False,
+            font=dict(color=p.over if over else t.INK_SOFT, size=12),
         )
 
     if today is not None and start <= today <= end:
@@ -96,7 +101,8 @@ def pace_chart(
         height=340,
         yaxis=dict(title=None, tickprefix="$", separatethousands=True, rangemode="tozero"),
         xaxis=dict(title=None, showgrid=False, range=[start, end]),
-        legend=dict(orientation="h", y=1.1, x=0),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0, font=dict(color=t.INK, size=13)),
+        margin=dict(l=8, r=8, t=40, b=8),
     )
     return figure
 
@@ -181,14 +187,16 @@ def kind_bars(split: pd.DataFrame, color: str) -> go.Figure:
         marker=dict(color=color, cornerradius=6),
         text=[f"${amount:,.0f} · {share:.0f}%" for amount, share in zip(data["Amount"], data["Share"])],
         textposition="outside", cliponaxis=False,
-        textfont=dict(color=t.INK_SOFT, size=12),
+        textfont=dict(color=t.INK, size=15),
         customdata=data["Charges"],
         hovertemplate="<b>%{y}</b><br>$%{x:,.2f} across %{customdata} charge(s)<extra></extra>",
     ))
     figure.update_layout(
-        height=max(220, 70 + 44 * len(data)), showlegend=False, bargap=0.35,
+        height=max(240, 70 + 50 * len(data)), showlegend=False, bargap=0.3,
         margin=dict(l=8, r=8, t=8, b=8),
-        xaxis=dict(visible=False, range=[0, float(data["Amount"].max()) * 1.45]),
-        yaxis=dict(title=None, ticks="", tickfont=dict(size=13, color=t.INK)),
+        xaxis=dict(visible=False, range=[0, float(data["Amount"].max()) * 1.6]),
+        # A transparent tick of 14px is the gap between a row's name and its bar.
+        yaxis=dict(title=None, ticks="outside", ticklen=14, tickcolor="rgba(0,0,0,0)",
+                   tickfont=dict(size=14, color=t.INK)),
     )
     return figure

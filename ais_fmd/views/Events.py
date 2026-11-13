@@ -11,15 +11,25 @@ Clicking an event (a calendar chip, or a row in the list) opens it in a
 dialog: what, when, who came, and the purchases linked to it, which the
 treasurer can move to another event, unlink, or add to (2026-11-09).
 
+The panel also holds what an event is expected to cost and costs the bank
+statement won't show (2026-11-13): estimates, and typed costs such as cash.
+The month works like a calendar app for whoever may plan an event:
+double-click a day (or its "+") to add one, drag an event to move it. An
+.ics export takes the whole calendar, the semester, or just the changes made
+here, to Google Calendar.
+
 Live Google Calendar sync is shown as a preview only: the sandbox has no
 network, and the calendar ID is read from the workbook's calculation column.
+Schedule files are loaded on Treasury -> Reconcile, which shows what a file
+would change before anything is saved.
 
 A VP (`identity.committee_scoped`) gets this page too. VPs work as one team,
 so they see every club event (titles, dates, places, attendance), but money -- what an event cost, purchases that may
 belong to one -- is worked out from their own committee's transactions only,
 and shown only on their own committee's events. They can add their own
 committee's unlinked purchases to their own committee's events (2026-11-09);
-syncing, moving and unlinking stay with the treasurer.
+moving and unlinking purchases stay with the treasurer. A VP can add, edit and
+move their own committee's events and type their costs.
 """
 
 from __future__ import annotations
@@ -35,10 +45,11 @@ from streamlit.errors import StreamlitAPIException
 from ais_fmd import auth
 from ais_fmd.config import vp_committees
 from ais_fmd.data import repositories as repo
+from ais_fmd.domain import calendar_export
 from ais_fmd.domain import events as events_domain
 from ais_fmd.domain.money import format_currency
 from ais_fmd.domain.terms import ordered_semesters, term_id_for_semester
-from ais_fmd.ui import calendar_grid, clickable, committee_charts, shell, theme
+from ais_fmd.ui import calendar_grid, clickable, committee_charts, shell
 
 auth.require(auth.Role.MEMBER)
 identity = auth.current_user()
@@ -81,6 +92,11 @@ def is_mine(committee_id) -> bool:
     """Whether this identity sees money for an event booked to `committee_id`."""
     return not scoped or (pd.notna(committee_id) and int(committee_id) in my_ids)
 
+
+def can_plan(committee_id) -> bool:
+    """Whether this identity may add, edit or move an event booked to `committee_id`."""
+    return can_edit or (can_add and is_mine(committee_id))
+
 # --- Sync ---------------------------------------------------------------------
 
 
@@ -97,14 +113,13 @@ def _sync_status() -> None:
     )
     google_column, files_column = st.columns([3, 2], gap="medium")
     with google_column, shell.card("events-google", order=1):
-        shell.heading("Google Calendar", shell.pill("Preview · not connected", "muted"))
-        short_id = f"{calendar_id[:14]}…{calendar_id.split('@')[-1]}" if calendar_id else "not found yet"
-        shell.say(
-            f"AIS Events calendar (`{short_id}`), found in the schedule workbook. Connected, it "
-            "would sync every hour. The sandbox has no network, so for now events come from the "
-            "spreadsheets on the right.",
-            caption=True,
+        shell.heading(
+            "Google Calendar", shell.pill("Preview · not connected", "muted"),
+            help="The calendar ID comes from the schedule workbook. Connected, it would sync every hour. "
+                 "The sandbox has no network, so for now events come from the spreadsheets on the right.",
         )
+        short_id = f"{calendar_id[:14]}…{calendar_id.split('@')[-1]}" if calendar_id else "not found yet"
+        shell.say(f"AIS Events calendar (`{short_id}`).", caption=True)
         st.button(
             "Connect Google Calendar", icon=":material/calendar_month:", disabled=True,
             help="Needs Google sign-in, which isn't available in the sandbox.",
@@ -113,42 +128,32 @@ def _sync_status() -> None:
     with files_column, shell.card("events-files", order=2):
         shell.heading("Synced from", shell.pill(f"{len(all_events)} events", "muted"))
         if sources.empty:
-            shell.say("Nothing yet. Upload an event schedule workbook or an .ics file.", caption=True)
+            shell.say("Nothing yet.", caption=True)
         for source, row in sources.iterrows():
             # SQLite's CURRENT_TIMESTAMP is UTC; show local time.
             synced = pd.to_datetime(row["synced"], errors="coerce", utc=True)
             when = f"{synced.tz_convert(datetime.now().astimezone().tzinfo):%b %d, %-I:%M %p}" if not pd.isna(synced) else ""
-            shell.say(f"**{escape(str(source).split(': ', 1)[-1])}**  \n{row['events']} events · {when}", caption=True)
+            name = "Added in the app" if source == "manual" else str(source).split(": ", 1)[-1]
+            count = f"{row['events']} event{'s' if row['events'] != 1 else ''}"
+            shell.say(f"**{escape(name)}**  \n{count} · {when}", caption=True)
         if can_edit:
-            with st.popover("Sync from a file", icon=":material/sync:"):
-                _upload_form()
+            st.button(
+                "Check a schedule file", icon=":material/difference:", key="events_to_reconcile",
+                on_click=_to_reconcile,
+                help="On Treasury → Reconcile: upload an event schedule (.xlsx) or a calendar export (.ics), "
+                     "see what's new, changed or missing, and pick what to apply.",
+            )
 
 
-def _upload_form() -> None:
-    upload = st.file_uploader(
-        "Event schedule (.xlsx) or calendar export (.ics)", type=["xlsx", "ics"], key="events_upload"
-    )
-    if upload is None:
-        return
-    parsed = events_domain.parse_upload(upload.getvalue(), upload.name, bundle.terms)
-    known = set(all_events["external_key"]) if not all_events.empty else set()
-    new = sum(1 for e in parsed.events if e.key not in known)
-    shell.say(
-        f"{len(parsed.events)} events in {', '.join(parsed.sheets_read) or 'the file'}: "
-        f"{new} new, {len(parsed.events) - new} already here (updated).",
-        caption=True,
-    )
-    for sheet, count in parsed.skipped_outside_term.items():
-        shell.say(f"{sheet}: skipped {count} rows dated outside that semester.", caption=True)
-    for note in parsed.notes:
-        shell.say(note, caption=True)
-    if st.button("Sync these events", type="primary", disabled=not parsed.events, key="events_sync"):
-        result = repo.sync_events([e.as_row() for e in parsed.events], identity.email)
-        if result.error:
-            shell.notify("error", result.error)
-        else:
-            st.toast(f"Synced: {result.updated} new, {result.unchanged} updated.")
-            st.rerun()
+def _to_reconcile() -> None:
+    st.session_state[RECONCILE_KEY] = RECONCILE_TARGET
+    st.session_state["reconcile_source"] = "Event schedule"
+    st.session_state["_events_switch"] = True
+
+
+RECONCILE_KEY, RECONCILE_TARGET = "treasury_tab", "Reconcile"
+if st.session_state.pop("_events_switch", False):
+    st.switch_page("ais_fmd/views/Treasury.py")
 
 
 _sync_status()
@@ -188,15 +193,32 @@ elif scope != "All committees":
     wanted = next(c for c in present if committee_names.get(c) == scope)
     term_events = term_events[term_events["committee_id"] == wanted]
 with view_column:
-    view = st.segmented_control("View", ["Month", "List"], default="Month", key="events_view") or "Month"
+    view = st.segmented_control(
+        "View", ["Month", "List"], default="Month", key="events_view",
+        help="Click an event in the month, or a row in the list, to see its details and purchases.",
+    ) or "Month"
 
 spending = events_domain.event_spending(money, links)
+event_costs = repo.load_event_costs()
+
+
+def _typed(kind: str) -> pd.Series:
+    """event_id -> total of the costs of `kind` typed against it."""
+    if event_costs.empty:
+        return pd.Series(dtype=float)
+    rows = event_costs[event_costs["kind"] == kind]
+    return pd.to_numeric(rows["amount"], errors="coerce").groupby(rows["event_id"].astype(int)).sum()
+
+
 term_events = term_events.merge(spending, on="event_id", how="left")
 term_events["Spent"] = term_events["Spent"].fillna(0.0)
 term_events["Purchases"] = term_events["Purchases"].fillna(0).astype(int)
+# Costs typed in the panel: an estimate, and costs no statement shows (cash).
+term_events["Estimated"] = term_events["event_id"].astype(int).map(_typed("estimate")).fillna(0.0)
+term_events["Spent"] += term_events["event_id"].astype(int).map(_typed("manual")).fillna(0.0)
 # Another committee's event shows no money to a VP, even one of their own
 # purchases linked to it -- the event's cost belongs to its committee.
-term_events.loc[~term_events["committee_id"].map(is_mine), ["Spent", "Purchases"]] = 0
+term_events.loc[~term_events["committee_id"].map(is_mine), ["Spent", "Purchases", "Estimated"]] = 0
 
 suggestions = events_domain.suggest_links(money, all_events, links, committees)
 term_ids = set(term_events.loc[term_events["committee_id"].map(is_mine), "event_id"])
@@ -211,17 +233,22 @@ to_review = [s for s in term_suggestions if s.confidence != events_domain.LOW]
 tiles = [
     ("events-count", "Events", f"{len(term_events):,}", False,
      f"{len(held):,} held, {len(term_events) - len(held):,} to come"),
-    ("events-linked", "Your spending linked" if scoped else "Spending linked", float(costed["Spent"].sum()), True,
+    ("events-linked", "Your events' spending" if scoped else "Spent on events", float(costed["Spent"].sum()), True,
      f"across {len(costed):,} events"),
     ("events-attendance", "Average attendance", f"{attended.mean():.0f}" if len(attended) else "—", False,
      f"{len(attended):,} events with a count"),
-    ("events-review", "Purchases to match", f"{len(to_review):,}", False,
-     "the treasurer confirms these" if scoped else "likely belong to an event"),
+    ("events-review", "Purchases to match", f"{len(to_review):,}", False, ""),
 ]
+tile_help = {
+    "events-linked": "Purchases linked from the bank statement, plus costs typed in an event that no statement shows.",
+    "events-review": "Purchases that likely belong to an event. The treasurer confirms these."
+    if scoped else "Purchases that likely belong to an event.",
+}
 for column, (name, label, value, currency, caption) in zip(st.columns(4, gap="medium"), tiles):
     with column, shell.card(name, order=2):
-        shell.metric(st, label, value, currency=currency)
-        shell.say(caption, caption=True)
+        shell.metric(st, label, value, currency=currency, help=tile_help.get(name))
+        if caption:
+            shell.say(caption, caption=True)
 
 # --- One event: a panel opened from the calendar or the list -----------------
 #
@@ -275,52 +302,15 @@ def _changed(message: str) -> None:
         st.rerun()
 
 
-def _event_panel(event_id: int) -> None:
-    if event_id not in event_lookup.index:
-        shell.say("This event is no longer on the calendar.", caption=True)
-        return
-    event = event_lookup.loc[event_id]
-    day = pd.to_datetime(event["event_date"]).date()
-    committee_id = event["committee_id"]
-    owner = committee_names.get(int(committee_id), "") if pd.notna(committee_id) else ""
+def _stat(label: str, value: str, sub: str = "", *, help: str = "", first: bool = False, over: bool = False) -> str:
+    edge = " first" if first else ""
+    small = f"<small>{sub}</small>" if sub else ""
+    tone = ' class="over"' if over else ""
+    return f'<div class="ais-stat{edge}"><span>{label}{shell.tip(help)}</span><b{tone}>{value}</b>{small}</div>'
 
-    # The schedule sheets sometimes hold words ("Never", "TBD") in the time
-    # columns; only show what reads as a time.
-    start, end = (str(event[k]) if pd.notna(event[k]) and any(ch.isdigit() for ch in str(event[k])) else None
-                  for k in ("start_time", "end_time"))
-    when = f"{day:%A, %b %d}" + (f" · {start}" if start else "") + (f"–{end}" if start and end else "")
-    facts = [when]
-    if pd.notna(event["location"]):
-        facts.append(str(event["location"]))
-    if pd.notna(event["attendance"]):
-        facts.append(f"{int(event['attendance'])} came")
-    shell.html(
-        f'<div class="ais-event-facts">{shell.pill(escape(owner or "No committee"), "muted")}'
-        f'<span>{" · ".join(escape(str(f)) for f in facts)}</span></div>'
-    )
-    more = [f"{label}: {event[key]}" for label, key in (("Owner", "owner"), ("Audience", "audience"), ("Status", "status"))
-            if pd.notna(event[key])]
-    if pd.notna(event["attendance"]) and pd.notna(event["attendance_source"]):
-        more.append(f"Attendance from the {event['attendance_source']}")
-    if more:
-        shell.say(escape(" · ".join(str(m) for m in more)), caption=True)
-    if pd.notna(event["description"]):
-        shell.say(escape(str(event["description"])), caption=True)
 
-    if not is_mine(committee_id):
-        shell.heading("Spending")
-        shell.say(f"What this event cost is visible to the {escape(owner or 'committee')} VP and the treasurer.", caption=True)
-        return
-
-    links_now = repo.load_event_links()
-    linked_ids = links_now.loc[links_now["event_id"] == event_id, "transaction_id"].astype(int).tolist() if not links_now.empty else []
-    purchases = money[money["transactionid"].isin(linked_ids)].sort_values("transaction_date")
-    total = float(-pd.to_numeric(purchases["amount"], errors="coerce").sum()) if not purchases.empty else 0.0
-    per_person = (f" · {format_currency(total / event['attendance'])} per person"
-                  if total and pd.notna(event["attendance"]) and event["attendance"] else "")
-    shell.heading("Spending", shell.pill(f"{format_currency(total)}{per_person}", "muted"))
-    if purchases.empty:
-        shell.say("No purchases linked yet.", caption=True)
+def _purchase_rows(event_id: int, purchases: pd.DataFrame) -> None:
+    """Each linked purchase; the treasurer can move it to another event or unlink it."""
     for row in purchases.itertuples():
         tid = int(row.transactionid)
         widths = [1, 3, 1.2, 3, 0.7] if can_edit else [1, 3, 1.2]
@@ -345,10 +335,125 @@ def _event_panel(event_id: int) -> None:
                 repo.unlink_transaction_from_event(tid, identity.email)
                 _changed("Unlinked.")
 
+
+def _event_panel(event_id: int) -> None:
+    # Read fresh: inside the dialog only this function reruns, so the page's
+    # own copy is stale after an edit made here.
+    fresh = repo.load_events().set_index("event_id")
+    if event_id not in fresh.index:
+        shell.say("This event is no longer on the calendar.", caption=True)
+        return
+    event = fresh.loc[event_id]
+    day = pd.to_datetime(event["event_date"]).date()
+    committee_id = event["committee_id"]
+    owner = committee_names.get(int(committee_id), "") if pd.notna(committee_id) else ""
+
+    # The schedule sheets sometimes hold words ("Never", "TBD") in the time
+    # columns; only show what reads as a time.
+    start, end = (str(event[k]) if pd.notna(event[k]) and any(ch.isdigit() for ch in str(event[k])) else None
+                  for k in ("start_time", "end_time"))
+    when = f"{day:%A, %b %d}" + (f" · {start}" if start else "") + (f"–{end}" if start and end else "")
+    facts = [when]
+    if pd.notna(event["location"]):
+        facts.append(str(event["location"]))
+    if pd.notna(event["attendance"]):
+        facts.append(f"{int(event['attendance'])} came")
+    added_here = str(event.get("source") or "") == "manual"
+    shell.html(
+        f'<div class="ais-event-facts">{shell.pill(escape(owner or "No committee"), "muted")}'
+        + (shell.pill("Added here", "muted") if added_here else "")
+        + f'<span>{" · ".join(escape(str(f)) for f in facts)}</span></div>'
+    )
+    more = [f"{label}: {event[key]}" for label, key in (("Owner", "owner"), ("Audience", "audience"), ("Status", "status"))
+            if pd.notna(event[key])]
+    if pd.notna(event["attendance"]) and pd.notna(event["attendance_source"]):
+        more.append(f"Attendance from the {event['attendance_source']}")
+    if more:
+        shell.say(escape(" · ".join(str(m) for m in more)), caption=True)
+    if pd.notna(event["description"]):
+        shell.say(escape(str(event["description"])), caption=True)
+
+    if not is_mine(committee_id):
+        shell.heading("Costs")
+        shell.say(f"What this event cost is visible to the {escape(owner or 'committee')} VP and the treasurer.", caption=True)
+        return
+
+    links_now = repo.load_event_links()
+    linked_ids = links_now.loc[links_now["event_id"] == event_id, "transaction_id"].astype(int).tolist() if not links_now.empty else []
+    purchases = money[money["transactionid"].isin(linked_ids)].sort_values("transaction_date")
+    bought = float(-pd.to_numeric(purchases["amount"], errors="coerce").sum()) if not purchases.empty else 0.0
+    costs_now = repo.load_event_costs()
+    typed = costs_now[costs_now["event_id"].astype(int) == event_id] if not costs_now.empty else costs_now
+    amounts = pd.to_numeric(typed["amount"], errors="coerce") if not typed.empty else pd.Series(dtype=float)
+    estimate = float(amounts[typed["kind"] == "estimate"].sum()) if not typed.empty else 0.0
+    other = float(amounts[typed["kind"] == "manual"].sum()) if not typed.empty else 0.0
+    spent = bought + other
+    planner = can_plan(committee_id)
+
+    # --- Costs: the estimate against what was spent, in one place.
+    shell.heading(
+        "Costs",
+        help="Estimated: what you expect it to cost, typed below. Spent: purchases linked from the bank "
+             "statement plus costs typed here that no statement shows (cash, a card not yet reimbursed).",
+    )
+    left = estimate - spent
+    stats = [
+        _stat("Estimated", format_currency(estimate) if estimate else "—", first=True,
+              sub=f"{int((typed['kind'] == 'estimate').sum())} line(s)" if estimate else "none yet"),
+        _stat("Spent", format_currency(spent),
+              sub=" + ".join(part for part in (
+                  f"{format_currency(bought)} bank" if bought else "",
+                  f"{format_currency(other)} typed" if other else "",
+              ) if part) or "nothing yet"),
+    ]
+    if estimate:
+        stats.append(_stat("Over by" if left < 0 else "Left", format_currency(abs(left)), over=left < 0,
+                           sub=f"{spent / estimate:.0%} of the estimate"))
+    if spent and pd.notna(event["attendance"]) and event["attendance"]:
+        stats.append(_stat("Per person", format_currency(spent / event["attendance"]),
+                           sub=f"{int(event['attendance'])} came"))
+    shell.html(f'<div class="ais-stat-row">{"".join(stats)}</div>')
+
+    for row in typed.itertuples() if not typed.empty else []:
+        cells = st.columns([3, 1.6, 1.2, 0.7] if planner else [3, 1.6, 1.2], vertical_alignment="center")
+        cells[0].write(str(row.label))
+        kind_name = "Estimate" if row.kind == "estimate" else "Paid, not on the statement"
+        cells[1].caption("" if str(row.label) == kind_name else kind_name)
+        cells[2].write(format_currency(float(row.amount)))
+        if planner and cells[3].button("", icon=":material/delete:", key=f"events_cost_del_{row.cost_id}",
+                                       help="Remove this line"):
+            repo.delete_event_cost(int(row.cost_id), identity.email)
+            _changed("Removed.")
+
+    if planner:
+        with st.form(f"events_cost_form_{event_id}", clear_on_submit=True, border=False):
+            cells = st.columns([3, 1.5, 2.2, 1.3], vertical_alignment="bottom")
+            label = cells[0].text_input("What for", placeholder="Pizza for 60, room fee…", key=f"events_cost_label_{event_id}")
+            amount = cells[1].number_input("Amount", min_value=0.0, step=5.0, value=None, format="%.2f",
+                                           key=f"events_cost_amount_{event_id}")
+            kind = cells[2].selectbox("Kind", ["Estimate", "Paid, not on the statement"],
+                                      key=f"events_cost_kind_{event_id}")
+            if cells[3].form_submit_button("Add cost", icon=":material/add:"):
+                if not amount:
+                    shell.notify("warning", "Type an amount first.")
+                else:
+                    result = repo.add_event_cost(event_id, "estimate" if kind == "Estimate" else "manual",
+                                                 label or "", float(amount), identity.email)
+                    if result.error:
+                        shell.notify("error", result.error)
+                    else:
+                        _changed("Added.")
+
+    shell.heading("From the bank statement", shell.pill(format_currency(bought), "muted"))
+    if purchases.empty:
+        shell.say("No purchases linked yet.", caption=True)
+    _purchase_rows(event_id, purchases)
+
     nearby = _money_near(day)
     here = [s for s in events_domain.suggest_links(nearby, all_events, links_now, committees) if s.event_id == event_id]
     if here:
-        shell.heading("Suggested for this event", shell.pill(str(len(here)), "muted"))
+        shell.heading("Suggested for this event", shell.pill(str(len(here)), "muted"),
+                      help="" if can_add else "The treasurer confirms these.")
         for s in sorted(here, key=lambda s: -s.score):
             cells = st.columns([1, 3, 1.2, 1.4, 1.1] if can_add else [1, 3, 1.2, 1.4], vertical_alignment="center")
             row = money.loc[money["transactionid"] == s.transaction_id].iloc[0]
@@ -359,8 +464,6 @@ def _event_panel(event_id: int) -> None:
             if can_add and cells[4].button("Link", key=f"events_suggest_{event_id}_{s.transaction_id}"):
                 repo.link_transactions_to_events([(s.transaction_id, event_id)], identity.email)
                 _changed("Linked.")
-        if not can_add:
-            shell.say("The treasurer confirms these.", caption=True)
 
     if can_add:
         elsewhere = dict(zip(links_now["transaction_id"].astype(int), links_now["event_id"].astype(int))) if not links_now.empty else {}
@@ -383,13 +486,166 @@ def _event_panel(event_id: int) -> None:
             repo.link_transactions_to_events([(int(choice), event_id)], identity.email)
             _changed("Linked.")
 
+    if planner:
+        with st.expander("Edit event", icon=":material/edit:"):
+            _edit_form(event_id, event, len(linked_ids))
+
+
+# --- Adding, editing, moving --------------------------------------------------
+
+def _committee_choices() -> list[int | None]:
+    """Committees this identity may book an event to (a VP: only their own)."""
+    if scoped:
+        return sorted(my_ids)
+    return [None, *sorted(committee_names, key=lambda c: committee_names[c])]
+
+
+def _committee_label(committee_id) -> str:
+    return committee_names.get(int(committee_id), str(committee_id)) if committee_id is not None else "No committee"
+
+
+def _clock(value) -> str | None:
+    return f"{value:%H:%M}" if value is not None else None
+
+
+def _term_for(day: date) -> str | None:
+    return events_domain.term_for_day(bundle.terms, day)[0] or term_id
+
+
+def _edit_form(event_id: int, event: pd.Series, linked: int) -> None:
+    choices = _committee_choices()
+    current = int(event["committee_id"]) if pd.notna(event["committee_id"]) else None
+    with st.form(f"events_edit_{event_id}", border=False):
+        title = st.text_input("Title", value=str(event["title"]), key=f"events_edit_title_{event_id}")
+        cells = st.columns(3)
+        day = cells[0].date_input("Date", value=pd.to_datetime(event["event_date"]).date(),
+                                  key=f"events_edit_day_{event_id}")
+        start = cells[1].text_input("Starts", value=str(event["start_time"] or "") if pd.notna(event["start_time"]) else "",
+                                    placeholder="18:30", key=f"events_edit_start_{event_id}")
+        end = cells[2].text_input("Ends", value=str(event["end_time"] or "") if pd.notna(event["end_time"]) else "",
+                                  placeholder="20:00", key=f"events_edit_end_{event_id}")
+        location = st.text_input("Location", value=str(event["location"]) if pd.notna(event["location"]) else "",
+                                 key=f"events_edit_location_{event_id}")
+        committee = st.selectbox("Committee", choices, index=choices.index(current) if current in choices else 0,
+                                 format_func=_committee_label, key=f"events_edit_committee_{event_id}")
+        description = st.text_area("Notes", value=str(event["description"]) if pd.notna(event["description"]) else "",
+                                   key=f"events_edit_notes_{event_id}", height=90)
+        if st.form_submit_button("Save changes", type="primary"):
+            wanted = {
+                "title": title.strip(), "event_date": day.isoformat(), "start_time": start.strip() or None,
+                "end_time": end.strip() or None, "location": location.strip() or None,
+                "committee_id": committee, "description": description.strip() or None, "term_id": _term_for(day),
+            }
+            def same(old, new) -> bool:
+                return (None if pd.isna(old) else str(old)) == (None if new is None else str(new))
+            changes = {k: v for k, v in wanted.items() if not same(event.get(k), v)}
+            if not wanted["title"]:
+                shell.notify("warning", "An event needs a title.")
+            elif not changes:
+                shell.notify("info", "Nothing changed.")
+            else:
+                result = repo.update_event(event_id, changes, identity.email)
+                if result.error:
+                    shell.notify("error", result.error)
+                else:
+                    _changed("Saved. Export the changes to put them on Google Calendar.")
+    confirm_key = f"_events_delete_{event_id}"
+    if linked:
+        st.button("Delete event", icon=":material/delete:", disabled=True, key=f"events_delete_{event_id}",
+                  help=f"{linked} purchase(s) are linked to it. Move or unlink them first.")
+    elif not st.session_state.get(confirm_key):
+        if st.button("Delete event", icon=":material/delete:", key=f"events_delete_{event_id}"):
+            st.session_state[confirm_key] = True
+            _changed("Click again to confirm.")
+    else:
+        cells = st.columns([2, 1, 3])
+        if cells[0].button("Yes, delete it", type="primary", key=f"events_delete_yes_{event_id}"):
+            result = repo.delete_event(event_id, identity.email)
+            st.session_state.pop(confirm_key, None)
+            if result.error:
+                shell.notify("error", result.error)
+            else:
+                st.toast("Deleted.")
+                st.rerun()
+        if cells[1].button("Cancel", key=f"events_delete_no_{event_id}"):
+            st.session_state.pop(confirm_key, None)
+            _changed("Kept.")
+        cells[2].caption("This removes it here only. If it's on Google Calendar, delete it there too.")
+
+
+def _add_panel(day: date) -> None:
+    choices = _committee_choices()
+    with st.form("events_new", border=False):
+        title = st.text_input("Title", placeholder="GBM #5, Resume workshop…", key="events_new_title")
+        cells = st.columns(3)
+        when = cells[0].date_input("Date", value=day, key="events_new_day")
+        start = cells[1].time_input("Starts", value=None, step=900, key="events_new_start")
+        end = cells[2].time_input("Ends", value=None, step=900, key="events_new_end")
+        location = st.text_input("Location", key="events_new_location")
+        cells = st.columns(2)
+        committee = cells[0].selectbox("Committee", choices, format_func=_committee_label, key="events_new_committee")
+        estimate = cells[1].number_input("Estimated cost", min_value=0.0, step=5.0, value=None, format="%.2f",
+                                         key="events_new_estimate", help="Optional. You can add more cost lines after.")
+        description = st.text_area("Notes", key="events_new_notes", height=90)
+        if st.form_submit_button("Add event", type="primary", icon=":material/add:", key="events_new_submit"):
+            if not title.strip():
+                shell.notify("warning", "An event needs a title.")
+                return
+            row = events_domain.Event(
+                event_date=when, title=title.strip(), start_time=_clock(start), end_time=_clock(end),
+                location=location.strip() or None, description=description.strip() or None,
+                committee_id=committee, term_id=_term_for(when), source="manual",
+            ).as_row()
+            result = repo.add_event(row, identity.email)
+            if result.error:
+                shell.notify("error", result.error)
+                return
+            if estimate:
+                repo.add_event_cost(result.updated, "estimate", "Estimate", float(estimate), identity.email)
+            st.session_state[OPEN_KEY] = int(result.updated)
+            st.session_state[f"events_month_{row['term_id']}"] = f"{calendar.month_abbr[when.month]} {when.year}"
+            st.toast(f"Added {title.strip()}.")
+            st.rerun()
+
+
+MOVE_KEY = "events_last_move"   # (event_id, from day, to day, title): the undo offered after a drag
+
+
+def _move(event_id: int, day: date) -> None:
+    if event_id not in event_lookup.index:
+        return
+    event = event_lookup.loc[event_id]
+    if not can_plan(event["committee_id"]):
+        shell.notify("warning", "Only the treasurer or this committee's VP can move this event.")
+        return
+    before = pd.to_datetime(event["event_date"]).date()
+    result = repo.update_event(event_id, {"event_date": day.isoformat(), "term_id": _term_for(day)}, identity.email)
+    if result.error:
+        shell.notify("error", result.error)
+        return
+    st.session_state[MOVE_KEY] = (event_id, before.isoformat(), day.isoformat(), str(event["title"]))
+    st.rerun()
+
+
+def _undo_move() -> None:
+    moved = st.session_state.pop(MOVE_KEY, None)
+    if moved:
+        repo.update_event(int(moved[0]), {"event_date": moved[1], "term_id": _term_for(date.fromisoformat(moved[1]))},
+                          identity.email)
+
 
 def _open(event_id: int) -> None:
     title = str(event_lookup.loc[event_id, "title"]) if event_id in event_lookup.index else "Event"
     st.dialog(title, width="large", on_dismiss="rerun")(_event_panel)(event_id)
 
 
+def _open_add(day: date) -> None:
+    st.dialog("Add an event", width="large", on_dismiss="rerun")(_add_panel)(day)
+
+
 to_open: int | None = st.session_state.pop(OPEN_KEY, None)
+ADD_KEY = "events_add_day"   # a day to open the add-event form on (the button, or a test)
+to_add: date | None = st.session_state.pop(ADD_KEY, None)
 
 # --- Month grid ---------------------------------------------------------------
 
@@ -407,33 +663,101 @@ def _month_grid(year: int, month: int, rows: pd.DataFrame) -> str:
             meta.append(f"{int(event.attendance)} came")
         if event.Spent > 0:
             meta.append(f'<span class="spent">&#36;{event.Spent:,.0f}</span>')
+        elif event.Estimated > 0:
+            meta.append(f'<span class="est">est &#36;{event.Estimated:,.0f}</span>')
         owner = committee_names.get(int(event.committee_id), "") if pd.notna(event.committee_id) else ""
+        where = f" · {event.location}" if isinstance(event.location, str) and event.location else ""
         chips.setdefault(event.day, []).append(calendar_grid.Chip(
             title=str(event.title), meta_html=" · ".join(meta), color=_color(event.committee_id),
-            tip=f"{event.title} · {event.location or ''} · {owner}", pick=str(int(event.event_id)),
+            tip=f"{event.title}{where} · {owner}" + (" · drag to move" if can_plan(event.committee_id) else ""),
+            pick=str(int(event.event_id)), movable=can_plan(event.committee_id),
         ))
-    return calendar_grid.month_grid(year, month, chips, today=TODAY)
+    return calendar_grid.month_grid(year, month, chips, today=TODAY, editable=can_add)
 
+
+def _actions(month_shown: tuple[int, int] | None) -> None:
+    """Add an event, and export to Google Calendar, right-aligned above the calendar."""
+    cells = st.columns(2 if can_add else 1)
+    if can_add:
+        year, month = month_shown or (TODAY.year, TODAY.month)
+        first = date(year, month, 1)
+        default = TODAY if (TODAY.year, TODAY.month) == (year, month) else first
+        cells[0].button(
+            "Add event", icon=":material/add:", key="events_add_button", width="stretch",
+            on_click=lambda: st.session_state.__setitem__(ADD_KEY, default),
+            help="Or double-click a day on the calendar. Drag an event to move it.",
+        )
+    with cells[-1].popover("Export", icon=":material/ios_share:", width="stretch"):
+        _export_menu()
+
+
+def _export_menu() -> None:
+    changes = calendar_export.changed_here(all_events)
+    semester_rows = all_events[all_events["term_id"] == term_id]
+    options = {
+        f"Changes made here ({len(changes)})": ("changes", changes),
+        f"{semester} ({len(semester_rows)})": (semester, semester_rows),
+        f"Whole calendar ({len(all_events)})": ("all", all_events),
+    }
+    pick = st.radio(
+        "What to export", list(options), key="events_export_scope",
+        help="Changes made here: events added, moved or edited in this app since the calendar last synced them.",
+    )
+    scope, rows = options[pick]
+    st.download_button(
+        "Download .ics", data=calendar_export.to_ics(rows, committee_names), type="primary",
+        file_name=calendar_export.file_name(scope, TODAY), mime="text/calendar", icon=":material/download:",
+        disabled=rows.empty, key="events_export_download", width="stretch",
+    )
+    shell.say(
+        "In Google Calendar: **Settings → Import & export → Import**, choose this file and the AIS Events "
+        "calendar. Importing the same file twice doesn't add copies. Costs are never exported.",
+        caption=True,
+    )
+
+
+moved = st.session_state.get(MOVE_KEY)
+if moved:
+    note, undo, dismiss = st.columns([6, 1, 1], vertical_alignment="center")
+    note.markdown(
+        f"Moved **{escape(moved[3])}** from {date.fromisoformat(moved[1]):%a, %b %-d} to "
+        f"{date.fromisoformat(moved[2]):%a, %b %-d}."
+    )
+    undo.button("Undo", icon=":material/undo:", key="events_undo_move", on_click=_undo_move)
+    dismiss.button("Done", key="events_move_done", on_click=lambda: st.session_state.pop(MOVE_KEY, None))
 
 if view == "Month":
     months = sorted({(d.year, d.month) for d in term_events["day"]})
     if months:
         labels = [f"{calendar.month_abbr[m]} {y}" for y, m in months]
         default = next((label for (y, m), label in zip(months, labels) if (y, m) == (TODAY.year, TODAY.month)), labels[-1])
-        month_column, legend_column = st.columns([3, 2], vertical_alignment="center")
+        month_key = f"events_month_{term_id}"
+        if st.session_state.get(month_key) not in (None, *labels):
+            st.session_state.pop(month_key)  # a month that no longer has events
+        month_column, action_column = st.columns([3, 1.3], vertical_alignment="center")
         with month_column:
-            month_label = st.segmented_control("Month", labels, default=default, key=f"events_month_{term_id}",
+            month_label = st.segmented_control("Month", labels, default=default, key=month_key,
                                                label_visibility="collapsed") or default
         year, month = months[labels.index(month_label)]
-        with legend_column:
-            legend = shell.legend([(committee_names.get(c, ""), color) for c, color in committee_charts.committee_colors().items()
-                                   if c in set(term_events["committee_id"].dropna().astype(int))])
-            shell.html(f'<div style="display:flex;justify-content:flex-end">{legend}</div>')
+        with action_column:
+            _actions((year, month))
+        legend = shell.legend([(committee_names.get(c, ""), color) for c, color in committee_charts.committee_colors().items()
+                               if c in set(term_events["committee_id"].dropna().astype(int))])
+        hint = ('<span class="ais-cal-hint">Double-click a day to add · drag to move</span>' if can_add else "")
+        shell.html(f'<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">'
+                   f'{legend}{hint}</div>')
         clicked = clickable.html(_month_grid(year, month, term_events), key=f"events_cal_{term_id}_{year}_{month}")
-        if clicked:
+        if clicked and clicked.startswith("add:"):
+            to_add = date.fromisoformat(clicked[4:])
+        elif clicked and clicked.startswith("move:"):
+            _, moved_id, moved_day = clicked.split(":")
+            _move(int(moved_id), date.fromisoformat(moved_day))
+        elif clicked:
             to_open = int(clicked)
-        shell.say("Click an event to see its details and purchases.", caption=True)
+    else:
+        _actions(None)
 else:
+    _actions(None)
     ordered = term_events.sort_values("day").reset_index(drop=True)
     table = pd.DataFrame({
         "Date": ordered["day"],
@@ -452,8 +776,11 @@ else:
         width="stretch",
         column_config={
             "Date": st.column_config.DateColumn(format="ddd MMM D"),
-            "Attendance": st.column_config.NumberColumn(format="%d"),
-            "Spent": st.column_config.NumberColumn(format="dollar"),
+            "Attendance": st.column_config.NumberColumn(
+                format="%d",
+                help="From the schedule sheet or, for GBMs, the member database's check-in columns.",
+            ),
+            "Spent": st.column_config.NumberColumn(format="dollar", help="Only purchases linked to the event."),
             "Per person": st.column_config.NumberColumn(format="dollar"),
         },
         height=460,
@@ -470,12 +797,6 @@ else:
         st.session_state[seen_key] = picked_row
         if picked_row is not None:
             to_open = picked_row
-    shell.say(
-        "Click a row to see the event's details and purchases. Attendance comes from the schedule "
-        "sheet or, for GBMs, the member database's check-in columns. Spent counts only purchases "
-        "linked to the event.",
-        caption=True,
-    )
 
 # --- Spending -> events -------------------------------------------------------
 
@@ -483,16 +804,13 @@ st.markdown('<hr class="ais-rule" />', unsafe_allow_html=True)
 shell.heading(
     "Purchases that may belong to an event",
     shell.pill(str(len(to_review)), "over" if to_review else "on track"),
-)
-shell.say(
-    "Matched on the date, the merchant appearing in the event's location or name, the kind of "
+    help="Matched on the date, the merchant appearing in the event's location or name, the kind of "
     "merchant, and the committee it's already categorized to. "
     + ("Only your committee's purchases are listed. Tick Link to add one to its event, or pick the right "
        "event in the Event column. To move or unlink a purchase later, ask the treasurer."
        if scoped else
        "Tick Link to accept a match. If the event is wrong, pick the right one in the Event column; "
        "changing it counts as accepting. To move or unlink a purchase later, open its event above."),
-    caption=True,
 )
 
 confidence = st.segmented_control(
@@ -550,5 +868,7 @@ else:
                 st.toast(f"Linked {result.updated} purchase(s).")
                 st.rerun()
 
-if to_open is not None:
+if to_add is not None:
+    _open_add(to_add)
+elif to_open is not None:
     _open(int(to_open))

@@ -1,6 +1,16 @@
 """
-Treasury portal: budgets, terms and exports. (Statement upload moved to
-Transactions -> Import; see views/ImportStatement.py.)
+Treasury portal: budgets, terms, reconciling an uploaded file against the app,
+and exports.
+
+Reconcile (ui/reconcile_tab.py) is the only upload spot since 2026-11-13: data
+arrives by an automatic sync from Google Drive and Supabase, and a bank
+statement, membership roster or event schedule uploaded there is compared with
+what the app holds, with the ticked differences applied. It replaced
+Transactions -> Import, the Roster page's upload and the Events page's sync.
+
+The tabs are keyed (`reconcile_tab.TAB_KEY`), so another page can open this one
+on a tab: `reconcile_tab.open_treasury("Reconcile", "Membership roster")`, then
+`st.switch_page`.
 """
 
 from __future__ import annotations
@@ -13,8 +23,8 @@ from ais_fmd.config.categories import BUDGETED_COMMITTEE_IDS, committee_name
 from ais_fmd.data import repositories as repo
 from ais_fmd.domain import dues
 from ais_fmd.domain import sponsorship
-from ais_fmd.domain.terms import ordered_semesters, validate_semester_name
-from ais_fmd.ui import charts, shell
+from ais_fmd.domain.terms import validate_semester_name
+from ais_fmd.ui import charts, reconcile_tab, shell
 
 identity = auth.require(auth.Role.TREASURER)
 
@@ -22,11 +32,19 @@ shell.environment_banner()
 auth.read_only_notice(identity)
 shell.page_header(
     "Treasury",
-    "Allocate budgets, manage academic terms, and export the books.",
+    "Allocate budgets, manage academic terms, check an uploaded file against the app, "
+    "and export the books.",
 )
 
-# Statement upload moved to Transactions → Import (ImportStatement.py).
-tab_budgets, tab_terms, tab_export = st.tabs(["Budgets", "Terms", "Export"])
+# Keyed and stateful so a link from another page can land on a tab (Streamlit
+# reads the tab from session state). Every tab still runs on each rerun. The
+# labels are written out in the call: tests/test_assistant.py reads them there.
+tab_labels = ["Budgets", "Terms", reconcile_tab.TAB_LABEL, "Export"]
+if st.session_state.get(reconcile_tab.TAB_KEY) not in tab_labels:
+    st.session_state[reconcile_tab.TAB_KEY] = tab_labels[0]
+tab_budgets, tab_terms, tab_reconcile, tab_export = st.tabs(
+    ["Budgets", "Terms", "Reconcile", "Export"], key=reconcile_tab.TAB_KEY, on_change="rerun"
+)
 
 
 # ============================================================================
@@ -54,12 +72,6 @@ with tab_budgets:
             scoped = budgets[budgets["termid"] == selected_term]
             current = dict(zip(scoped["committeeid"], scoped["budget_amount"]))
 
-        st.caption(
-            "Allocations are upserted per committee. Unlike the original, existing "
-            "rows are not deleted first, so there is no window where the term has "
-            "no budget and no history is destroyed."
-        )
-
         with st.form("budget_form"):
             inputs: dict[int, float] = {}
             columns = st.columns(3)
@@ -74,7 +86,13 @@ with tab_budgets:
                         key=f"budget_{selected_term}_{committee_id}",
                         disabled=identity.read_only,
                     )
-            saved = st.form_submit_button("Save budgets", type="primary", disabled=identity.read_only)
+            saved = st.form_submit_button(
+                "Save budgets",
+                type="primary",
+                disabled=identity.read_only,
+                help="Allocations are upserted per committee. Existing rows are not deleted "
+                "first, so the term is never left without a budget and no history is destroyed.",
+            )
 
         if saved:
             result = repo.upsert_budgets(selected_term, inputs, identity.email)
@@ -119,14 +137,12 @@ with tab_terms:
 
     # --- Per-term dues rates -------------------------------------------------
 
-    st.markdown("#### Dues rates for a term")
-    shell.say(
-        "Dues are matched on an exact amount. The rate has changed nearly every "
+    shell.heading(
+        "Dues rates for a term",
+        help="Dues are matched on an exact amount. The rate has changed nearly every "
         "term historically, and a term charging a rate the app does not know "
         "about stops categorizing dues altogether — no error, the payments just "
-        "land in the review queue. Every term currently carries rates copied "
-        "from the old built-in default, marked unconfirmed until someone checks "
-        "them against what was actually charged."
+        "land in the review queue.",
     )
 
     if terms.empty:
@@ -164,6 +180,9 @@ with tab_terms:
                 confirmed = st.checkbox(
                     "Confirmed", value=already_confirmed, key="dues_rate_confirmed",
                     disabled=identity.read_only,
+                    help="Every term currently carries rates copied from the old built-in "
+                    "default, marked unconfirmed until someone checks them against what was "
+                    "actually charged.",
                 )
             if st.form_submit_button("Save rates", type="primary", disabled=identity.read_only):
                 parsed = dues.parse_rates(entered)
@@ -189,12 +208,12 @@ with tab_terms:
 
     # --- Dues price dates (domain/dues_checks.py) -----------------------------
 
-    st.markdown("#### Dues price dates")
-    shell.say(
-        "When the price goes up during the term, and when a payment counts as late. "
+    shell.heading(
+        "Dues price dates",
+        help="When the price goes up during the term, and when a payment counts as late. "
         "The Dues page checks every payment against the price for its date: the early "
         "price after the increase is underpaid, two prices added up is someone paying "
-        "for another member, and anything after the late cutoff gets a second look."
+        "for another member, and anything after the late cutoff gets a second look.",
     )
     if not terms.empty:
         # The term picker sits outside the form: inside one, choosing another term
@@ -262,11 +281,11 @@ with tab_terms:
 
     # --- Per-term sponsorship goal (M20) --------------------------------------
 
-    st.markdown("#### Sponsorship goal for a term")
-    shell.say(
-        "How much sponsorship/donation money the org is aiming to raise this "
+    shell.heading(
+        "Sponsorship goal for a term",
+        help="How much sponsorship/donation money the org is aiming to raise this "
         "term. Set once here; Home (This term in detail) shows how collection is "
-        "tracking against it, the same way it does for dues."
+        "tracking against it, the same way it does for dues.",
     )
 
     if terms.empty:
@@ -325,12 +344,11 @@ with tab_terms:
 
     # --- Sponsorship history, all terms at a glance ---------------------------
 
-    st.markdown("##### Sponsorship history")
-    shell.say(
-        "Every term with its goal and how much actually came in -- so a goal "
+    shell.heading(
+        "Sponsorship history",
+        help="Every term with its goal and how much actually came in, so a goal "
         "typo or an old target is easy to spot without switching terms one "
         "at a time on Home.",
-        caption=True,
     )
 
     if terms.empty:
@@ -439,12 +457,12 @@ with tab_terms:
 
     # --- Period locking (M10) -----------------------------------------------
 
-    st.markdown("#### Close or reopen a term")
-    st.caption(
-        "Closing a term makes its transactions read-only — imports and edits "
+    shell.heading(
+        "Close or reopen a term",
+        help="Closing a term makes its transactions read-only — imports and edits "
         "dated inside it are refused. The check lives in the data layer, so no "
         "page can bypass it. Close a term once it has been reconciled and "
-        "reported, so a later edit cannot silently change a published figure."
+        "reported, so a later edit cannot silently change a published figure.",
     )
 
     if terms.empty:
@@ -525,11 +543,22 @@ with tab_terms:
                 st.rerun()
 
 # ============================================================================
+# RECONCILE
+# ============================================================================
+
+with tab_reconcile:
+    reconcile_tab.render(identity)
+
+# ============================================================================
 # EXPORT
 # ============================================================================
 
 with tab_export:
-    st.markdown("#### Export data")
+    shell.heading(
+        "Export data",
+        help="Downloads are generated in the browser session. In sandbox mode these "
+        "come from the local SQLite file.",
+    )
     bundle = repo.load_bundle()
     exports = {
         "transactions": bundle.transactions,
@@ -552,7 +581,3 @@ with tab_export:
                 width="stretch",
             )
 
-    st.caption(
-        "Downloads are generated in the browser session. In sandbox mode these "
-        "come from the local SQLite file."
-    )

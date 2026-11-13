@@ -440,7 +440,8 @@ def test_a_plan_with_a_category_of_your_own_renders_and_shows_zero_spent(backend
     assert backend.replace_plan_lines(CONSULTING, "Fall 2026", own_line, (CONSULTING,), VP).ok
     app = run_as(VIEWS / "MyPlan.py", OFFICER, CONSULTING, plan_view="this")
     assert_clean(app, "My Plan with a category of the VP's own")
-    assert any("your own ones show $0 spent" in str(c.value) for c in app.caption)
+    # The reason sits in the Spent column's "?" (2026-11-13), in the editor's column config.
+    assert any("your own ones show $0 spent" in table.proto.columns for table in app.dataframe)
 
 
 def test_the_page_says_so_when_plans_cannot_be_saved_yet(backend, monkeypatch):

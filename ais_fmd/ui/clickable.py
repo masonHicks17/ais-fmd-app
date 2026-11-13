@@ -13,6 +13,11 @@ dialog reruns the page -- and that must not reopen what was just closed.
 
 Used by the Events calendar: each chip carries its event id, and a click opens
 that event's panel.
+
+Calendar gestures (2026-11-13), for markup that opts in with attributes:
+  * double-click an element with `data-day` (not on a chip) -> `add:<day>`
+  * drag an element with `data-drag` (and `data-from`, its day) onto another
+    `data-day` -> `move:<data-drag>:<day>`
 """
 
 from __future__ import annotations
@@ -36,9 +41,46 @@ export default function (component) {
     const item = target.closest('[data-pick]');
     if (item && root.contains(item)) { setTriggerValue('picked', item.getAttribute('data-pick') + '|' + Date.now()); }
   };
+  const send = (value) => setTriggerValue('picked', value + '|' + Date.now());
   root.onclick = (event) => pick(event.target);
   root.onkeydown = (event) => {
     if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); pick(event.target); }
+  };
+  root.ondblclick = (event) => {
+    if (event.target.closest('[data-pick]')) { return; }
+    const day = event.target.closest('[data-day]');
+    if (day && root.contains(day)) { send('add:' + day.dataset.day); }
+  };
+  const clearDrop = () => root.querySelectorAll('.drop').forEach((el) => el.classList.remove('drop'));
+  root.ondragstart = (event) => {
+    const chip = event.target.closest && event.target.closest('[data-drag]');
+    if (!chip) { return; }
+    event.dataTransfer.setData('text/plain', chip.dataset.drag + '@' + (chip.dataset.from || ''));
+    event.dataTransfer.effectAllowed = 'move';
+    chip.classList.add('dragging');
+  };
+  root.ondragend = (event) => {
+    clearDrop();
+    root.querySelectorAll('.dragging').forEach((el) => el.classList.remove('dragging'));
+  };
+  root.ondragover = (event) => {
+    const day = event.target.closest('[data-day]');
+    if (!day) { return; }
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+    if (!day.classList.contains('drop')) { clearDrop(); day.classList.add('drop'); }
+  };
+  root.ondragleave = (event) => {
+    const day = event.target.closest('[data-day]');
+    if (day && !day.contains(event.relatedTarget)) { day.classList.remove('drop'); }
+  };
+  root.ondrop = (event) => {
+    const day = event.target.closest('[data-day]');
+    clearDrop();
+    if (!day) { return; }
+    event.preventDefault();
+    const [id, from] = (event.dataTransfer.getData('text/plain') || '').split('@');
+    if (id && day.dataset.day !== from) { send('move:' + id + ':' + day.dataset.day); }
   };
 }
 """

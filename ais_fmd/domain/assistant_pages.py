@@ -85,9 +85,13 @@ PAGES: tuple[PageInfo, ...] = (
         ("review queue", "uncategorized", "uncategorised", "needs review", "categorize", "categorise", "miscategorized"),
     ),
     PageInfo(
-        "Import", "Transactions", "Import", "treasurer",
-        "import a Venmo or Wells Fargo statement into the ledger, with Haiku's suggestions and the spend review",
-        ("upload", "upload a bank statement", "upload a statement", "upload statements", "import statement"),
+        "Reconcile", "Treasury", "Reconcile", "treasurer",
+        "upload a bank statement, membership roster or event schedule and compare it with what the app "
+        "holds, then apply the differences you tick (data otherwise arrives by the automatic sync)",
+        ("upload", "upload a bank statement", "upload a statement", "upload statements", "import statement",
+         "import a statement", "upload roster", "upload a roster", "upload the roster", "upload a membership list",
+         "upload event schedule", "upload the event schedule", "upload a schedule", "compare a file",
+         "reconcile a file", "check a file"),
     ),
     PageInfo(
         "Events", "Events", None, "member",

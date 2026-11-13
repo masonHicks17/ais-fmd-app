@@ -55,10 +55,10 @@ rendered = st.tabs(tabs)
 # ============================================================================
 
 with rendered[0]:
-    st.markdown("#### New request")
-    st.caption(
-        "Attach the receipt now — it is far harder to find later, and an expense "
-        "without one is the hardest thing to defend in an audit."
+    shell.heading(
+        "New request",
+        help="Attach the receipt now — it is far harder to find later, and an expense "
+        "without one is the hardest thing to defend in an audit.",
     )
 
     with st.form("reimbursement_form", clear_on_submit=True):
@@ -223,11 +223,11 @@ if is_treasurer:
     # ========================================================================
 
     with rendered[3]:
-        st.markdown("#### Approved requests, matched against the bank feed")
-        st.caption(
-            "Matching is deliberately conservative: exact amount, outgoing only, "
+        shell.heading(
+            "Approved requests, matched against the bank feed",
+            help="Matching is deliberately conservative: exact amount, outgoing only, "
             "within 45 days. Candidates are offered for confirmation rather than "
-            "linked automatically."
+            "linked automatically.",
         )
 
         candidates = reimb.find_matches(requests, transactions)
@@ -287,12 +287,13 @@ if is_treasurer:
         columns[0].metric("Expenses", f"{coverage['expenses']:,}")
         columns[1].metric("With a receipt", f"{coverage['with_receipt']:,}")
         columns[2].metric("Value covered", format_currency(coverage["covered_amount"]))
-        columns[3].metric("Coverage", f"{coverage['rate']:.1f}%")
-        st.progress(min(coverage["rate"] / 100, 1.0))
-        st.caption(
-            "Measured by value rather than row count — an audit cares about the "
-            "dollars backed by evidence, not the number of receipts."
+        columns[3].metric(
+            "Coverage",
+            f"{coverage['rate']:.1f}%",
+            help="Measured by value rather than row count — an audit cares about the "
+            "dollars backed by evidence, not the number of receipts.",
         )
+        st.progress(min(coverage["rate"] / 100, 1.0))
 
         st.markdown("#### Attach a receipt to an existing transaction")
         expenses = transactions[transactions["amount"] < 0] if not transactions.empty else pd.DataFrame()

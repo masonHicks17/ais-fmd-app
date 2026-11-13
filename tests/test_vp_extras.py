@@ -100,11 +100,13 @@ def test_the_pace_chart_draws_the_on_pace_line_and_the_spend_so_far():
     assert list(figure.data[0].y) == [0.0, 1000.0]
 
 
-def test_spend_past_the_budget_is_drawn_in_a_different_colour():
+def test_spend_past_the_budget_turns_the_budget_line_orange_and_says_so():
     under = vp_metrics.cumulative_spend(_spend_frame(), START, END, pd.Timestamp("2026-08-05"))
-    colour_under = committee_charts.pace_chart(under, 1000.0, START, END).data[1].line.color
-    colour_over = committee_charts.pace_chart(under, 20.0, START, END).data[1].line.color
-    assert colour_under != colour_over
+    fine = committee_charts.pace_chart(under, 1000.0, START, END)
+    over = committee_charts.pace_chart(under, 20.0, START, END)
+    assert fine.layout.shapes[0].line.color != over.layout.shapes[0].line.color
+    assert fine.layout.annotations[0].text.startswith("Budget")
+    assert over.layout.annotations[0].text.startswith("Over budget")
 
 
 def test_the_pace_chart_copes_with_no_spend_and_with_no_budget_at_all():

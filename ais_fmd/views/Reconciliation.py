@@ -49,7 +49,11 @@ else:
 
     if unbalanced:
         st.markdown('<hr class="ais-rule" />', unsafe_allow_html=True)
-        st.markdown("#### Periods that do not reconcile")
+        shell.heading(
+            "Periods that do not reconcile",
+            help="Activity gaps are listed under a period when the ledger goes quiet. "
+            "A long silence usually means a statement was never imported.",
+        )
         for result in unbalanced:
             with st.container(border=True):
                 st.markdown(
@@ -69,7 +73,7 @@ else:
                         + "; ".join(
                             f"{start:%b %d} → {end:%b %d}" for start, end in result.date_gaps[:4]
                         )
-                        + ". A long silence usually means a statement was never imported."
+                        + "."
                     )
     else:
         st.success("Every recorded statement period reconciles.")
@@ -91,10 +95,10 @@ else:
 
 if can_edit:
     st.markdown('<hr class="ais-rule" />', unsafe_allow_html=True)
-    st.markdown("#### Record a statement period")
-    st.caption(
-        "Take these four numbers straight off the statement header. The ledger is "
-        "then checked against them."
+    shell.heading(
+        "Record a statement period",
+        help="Take these four numbers straight off the statement header. The ledger is "
+        "then checked against them.",
     )
 
     with st.form("balance_form"):

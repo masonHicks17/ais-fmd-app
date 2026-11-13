@@ -154,11 +154,6 @@ def vp_panel(
     # Open straight after a submit so the confirmation is actually seen.
     with st.expander("This isn't ours — flag a charge", expanded=_FLASH in st.session_state):
         _flash()
-        shell.say(
-            "If a charge here belongs to a different committee, flag it and say why. "
-            "The treasurer reviews it. You can't change the booking yourself, so "
-            "nothing moves until they decide.",
-        )
 
         if not labels:
             st.caption("There are no unflagged charges in this view.")
@@ -168,6 +163,9 @@ def vp_panel(
                 list(labels),
                 format_func=lambda tid: labels[tid],
                 key=f"flag_charge_{nonce}",
+                help="If a charge here belongs to a different committee, flag it and say why. "
+                     "The treasurer reviews it. You can't change the booking yourself, so "
+                     "nothing moves until they decide.",
             )
             note = st.text_area(
                 "Why isn't it yours?",
@@ -225,9 +223,7 @@ def treasurer_panel(transactions: pd.DataFrame, actor: str) -> None:
             shell.say("No VP has an open flag. Nothing to review here.", caption=True)
         else:
             shell.say(
-                "A VP says these charges belong to a different committee. Nothing has "
-                "changed yet. Decide each one: keep it where it is, or move it -- and "
-                "the booking changes right here, with the flag closed to match.",
+                "A VP says these charges belong to a different committee. Nothing has changed yet.",
                 caption=True,
             )
             detailed = flags_domain.with_charges(open_flags, transactions)
@@ -277,7 +273,10 @@ def _treasurer_decision(row: pd.Series, actor: str) -> None:
             )
         options = [VERDICT_KEEP, VERDICT_FIXED] if moved_since else [VERDICT_KEEP, VERDICT_MOVE, VERDICT_FIXED]
         # No default: a verdict that moves money should be chosen, not left selected.
-        verdict = st.radio("Your decision", options, index=None, key=f"flag_verdict_{flag_id}")
+        verdict = st.radio(
+            "Your decision", options, index=None, key=f"flag_verdict_{flag_id}",
+            help="Keep it where it is, or move it: the booking changes right here, with the flag closed to match.",
+        )
 
         destination = None
         if verdict == VERDICT_MOVE:

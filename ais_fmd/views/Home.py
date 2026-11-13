@@ -6,13 +6,16 @@ today -- every chart answers a question a treasurer acts on this week:
 
   Cash runway          will the balance stay above the reserve through term end?
   Spend pace           are we spending faster than the budget allows?
-  Committees to watch  who is furthest ahead of the calendar, and when do they run out?
   Dues                 are members paying faster than the same term last year?
   Needs you            alerts and data-quality issues, one list, each opens its page
 
 Below it, "This term in detail" is the former Dashboard (ui/term_analysis.py):
-KPIs against past terms, every committee's budget, where the money went and
-net by week, with its own semester and committee pickers.
+income, expenses and net against last term, every committee's budget, and where
+the money went, with its own semester and committee pickers.
+
+2026-11-13: "Committees to watch" is gone (Committee budgets below shows every
+committee the same way), the term appears once in the header instead of twice,
+and explanations moved from captions into "?" tooltips.
 """
 
 from __future__ import annotations
@@ -29,7 +32,7 @@ from ais_fmd.domain import dues as dues_domain
 from ais_fmd.domain import pace
 from ais_fmd.domain.money import format_currency
 from ais_fmd.domain.terms import default_semester, ordered_semesters, term_id_for_semester
-from ais_fmd.ui import charts, shell, term_analysis
+from ais_fmd.ui import charts, reconcile_tab, shell, term_analysis
 
 # Session keys of the hub switchers (see the *Hub.py views), so an action can
 # open a hub on the right view.
@@ -39,6 +42,7 @@ _HUB_KEYS = {
     "ais_fmd/views/TransactionsHub.py": "transactions_hub",
     "ais_fmd/views/AlertsHub.py": "alerts_hub",
 }
+_TREASURY = "ais_fmd/views/Treasury.py"
 
 identity = auth.current_user()
 
@@ -80,14 +84,14 @@ prior = pace.equivalent_prior(bundle.terms, semester)
 
 hour = datetime.now().hour
 greeting = "morning" if hour < 12 else "afternoon" if hour < 18 else "evening"
-head, term_progress = st.columns([3, 1], vertical_alignment="bottom")
-with head:
-    shell.page_header(
-        f"Good {greeting}, {identity.role.label}",
-        f"{semester} · week {clock.week} of {clock.weeks}",
-    )
-with term_progress:
-    st.progress(clock.fraction, text=f"{semester} · day {clock.day} of {clock.length}")
+shell.page_header(
+    f"Good {greeting}, {identity.role.label}",
+    context=(
+        f'{semester} · week {clock.week} of {clock.weeks}'
+        f'<span class="ais-term-bar" title="Day {clock.day} of {clock.length}">'
+        f'<i style="width:{clock.fraction:.0%}"></i></span>{clock.fraction:.0%} through'
+    ),
+)
 
 main, side = st.columns([2.6, 1], gap="medium")
 
@@ -106,24 +110,21 @@ with main:
             f"Projected {clock.end:%b %d}",
             runway.end_mid,
             delta=runway.end_mid - pace.RESERVE_FLOOR,
+            help=(
+                f"{runway.anchor}. Likely range at term end {format_currency(runway.end_low)} to "
+                f"{format_currency(runway.end_high)}. The change shown is against the "
+                f"{format_currency(pace.RESERVE_FLOOR)} reserve."
+            ),
         )
         shell.chart(
             charts.cash_runway(runway, clock, reserve=pace.RESERVE_FLOOR),
             key="home_runway",
             reveal="left",
         )
-        shell.say(
-            f"{runway.anchor}. Likely range at term end {format_currency(runway.end_low)} "
-            f"to {format_currency(runway.end_high)}; the delta above is against the "
-            f"{format_currency(pace.RESERVE_FLOOR)} reserve.",
-            caption=True,
-        )
-
-    pace_column, watch_column = st.columns(2, gap="medium")
 
     # --- Spend pace ----------------------------------------------------------
 
-    with pace_column, shell.card("pace", order=2):
+    with shell.card("pace", order=2):
         budget_total = pace.budget_totals(bundle.budgets, bundle.terms).get(semester, 0.0)
         spent = pace.cumulative_by_day(
             bundle.transactions, bundle.terms, semester, measure="expenses", through_day=clock.day
@@ -144,33 +145,19 @@ with main:
             status = shell.pill("Ahead of pace", "approaching")
         else:
             status = shell.pill(f"{ratio:.1f}× pace", "over")
-        shell.heading("Spend pace", status)
+        shell.heading(
+            "Spend pace", status,
+            help=(
+                "Spending so far this term (black) against "
+                + (f"{prior} at the same point (grey) and " if prior else "")
+                + "the term's budget spread evenly over the term (dashed). On pace means within 5% of the dashed line."
+            ),
+        )
         shell.chart(
             charts.spend_pace(spent, prior_spent, clock, budget=budget_total, prior_label=prior),
             key="home_pace",
             reveal="left",
         )
-
-    # --- Committees to watch -------------------------------------------------
-
-    with watch_column, shell.card("watch", order=3):
-        committees = pace.committee_pace(bundle.transactions, bundle.budgets, bundle.terms, clock)
-        shell.heading("Committees to watch")
-        if committees.empty:
-            shell.empty_state("No committee budgets yet", "Set them on the Treasury page.")
-        else:
-            shell.html(shell.pace_rows(committees, clock.fraction, rows=3))
-            shell.say(
-                f"Bar: share of the budget used. Dashed mark: {clock.fraction:.0%} of the term has passed, "
-                "so a bar past the mark is spending ahead of the calendar.",
-                caption=True,
-            )
-        if not committees.empty:
-            # Same page now: a link down to the committee budgets section.
-            st.markdown(
-                f"[All {len(committees)} committees ↓](#{term_analysis.ANCHOR})",
-                unsafe_allow_html=False,
-            )
 
 # --- Dues --------------------------------------------------------------------
 
@@ -196,6 +183,11 @@ with side:
             f"{summary.unique_payers:,} / {roster_size:,} paid" if roster_size else f"{summary.unique_payers:,} paid",
             delta=delta,
             currency=False,
+            help=(
+                "Members who have paid this term"
+                + (f", out of {roster_size:,} on the roster" if roster_size else "")
+                + (f". The line is dues collected by day; grey is {prior}." if prior else ". The line is dues collected by day.")
+            ),
         )
         shell.chart(charts.dues_curve(curve, prior_curve, clock, prior_label=prior), key="home_dues")
         shell.say(f"{format_currency(collected)} collected this term.", caption=True)
@@ -219,7 +211,7 @@ with side:
             elif "reconcil" in code:
                 target = ("ais_fmd/views/Reconciliation.py", None)
             elif "stale" in code:
-                target = ("ais_fmd/views/TransactionsHub.py", "Import")
+                target = (_TREASURY, reconcile_tab.TAB_LABEL)
             else:
                 target = ("ais_fmd/views/AlertsHub.py", "Alerts & Reports")
             icon = {"critical": ":material/error:", "warning": ":material/warning:"}.get(
@@ -269,6 +261,8 @@ with side:
                 ):
                     if tab and page in _HUB_KEYS:
                         st.session_state[_HUB_KEYS[page]] = tab
+                    elif tab and page == _TREASURY:
+                        reconcile_tab.open_treasury(tab, reconcile_tab.BANK)
                     st.switch_page(page)
         if len(items) > _TODO_ROWS:
             rest = len(items) - _TODO_ROWS

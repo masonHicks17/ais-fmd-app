@@ -6,10 +6,14 @@ Dashboard were merged; Dashboard.py still renders it as a page of its own for
 links and tests. Looks backward -- how a term was built and how it compares
 with past terms:
 
-  KPI cards             each figure at the same day of the last five terms
-  Committee budgets     % used against % of term elapsed, all committees
-  Where the money went  income by source -> spending by committee -> net
-  Net by week           cumulative net against the last two equivalent terms
+  Income − Expenses = Net   one card, each against the equivalent term
+  Committee budgets         % used against % of term elapsed, all committees
+  Where the money went      income by source -> spending by committee -> net
+
+2026-11-13: the four KPI tiles (with mini bars for the last five terms) became
+one Income − Expenses = Net card. Budget used left it (Committee budgets shows
+it per committee), and so did the bars and "Net by week": they repeated what
+the deltas and the waterfall already say.
 
 FINDING (comparisons). Deltas used to compare a part-finished term with the
 whole of the previous term. They now compare against the equivalent term at
@@ -27,7 +31,6 @@ import streamlit as st
 
 from ..config.categories import BUDGETED_COMMITTEE_IDS, committee_name
 from ..domain import pace
-from ..domain.money import format_currency
 from ..domain import sponsorship as sponsorship_domain
 from ..domain.terms import default_semester_index
 from . import charts, shell, theme
@@ -71,7 +74,7 @@ def render(bundle, semesters: list[str], *, as_page: bool = False) -> None:
         else:
             subtitle = f"{selected_semester} at day {clock.day}" + (f", against {prior} at the same day" if prior else "")
         if as_page:
-            shell.page_header("Dashboard", subtitle)
+            shell.page_header("Dashboard", context=subtitle)
         else:
             shell.section_header("This term in detail", subtitle, anchor=ANCHOR)
 
@@ -86,71 +89,29 @@ def render(bundle, semesters: list[str], *, as_page: bool = False) -> None:
         transactions = transactions[transactions["budget_category"] == committee_id]
         budgets = budgets[budgets["committeeid"] == committee_id] if not budgets.empty else budgets
 
-    # --- KPIs --------------------------------------------------------------------
+    # --- Income − Expenses = Net ------------------------------------------------
 
     day = None if clock.finished else clock.day
-    position = semesters.index(selected_semester)
-    recent = semesters[: position + 1][-5:]
-    history = pace.same_day_history(transactions, bundle.terms, recent + ([prior] if prior else []), day, budgets)
+    history = pace.same_day_history(
+        transactions, bundle.terms, [selected_semester] + ([prior] if prior else []), day, budgets
+    )
     now = history[selected_semester]
     then = history.get(prior) if prior else None
-
-
-    def _series(field: str) -> list[float]:
-        return [float(history[s][field] or 0.0) for s in recent]
-
-    def _short(semester: str) -> str:
-        # "Fall 2024" -> "F24", "Spring 2026" -> "S26"
-        parts = semester.split()
-        return f"{parts[0][0]}{parts[-1][-2:]}" if len(parts) >= 2 else semester[:4]
-
-    labels = [_short(s) for s in recent]
-    note = f"Same day of the last {len(recent)} terms" if len(recent) > 1 else None
-
-    def _hover(field: str, percent: bool = False) -> list[str]:
-        out = []
-        for s in recent:
-            value = history[s][field]
-            text = "—" if value is None else (f"{value:.1f}%" if percent else format_currency(float(value)))
-            out.append(f"{s}: {text}")
-        return out
-
-    def _bars(field: str, percent: bool = False) -> dict:
-        return dict(bars=_series(field), bar_labels=labels, bar_hover=_hover(field, percent), bar_note=note)
-
 
     def _delta(field: str):
         return None if then is None else now[field] - then[field]
 
-
-    net_column, income_column, expense_column, used_column = st.columns(4, gap="medium")
-    with net_column, shell.card("net", order=1, hero=True):
-        shell.metric(
-            st, "Net this term", now["net"], delta=_delta("net"), color="#FFFFFF", **_bars("net"),
-        )
-    # Each KPI sits in a card so its mini bars sit inside it too; a bare metric
-    # is its own small card and the bars would fall out below it.
-    with income_column, shell.card("income", order=1):
-        shell.metric(st, "Income", now["income"], delta=_delta("income"), **_bars("income"))
-    with expense_column, shell.card("expenses", order=1):
-        shell.metric(
-            st, "Expenses", now["expenses"], delta=_delta("expenses"), inverse=True,  # F11
-            **_bars("expenses"),
-        )
-    used_now = now["used"]
-    used_then = then["used"] if then else None
-    with used_column, shell.card("used", order=1):
-        shell.metric(
-            st,
-            "Budget used",
-            "—" if used_now is None else f"{used_now:.1f}%",
-            delta=None if used_now is None or used_then is None else f"{used_now - used_then:+.1f} pts",
-            inverse=True,
-            currency=False,
-            **_bars("used", percent=True),
-        )
-    if prior:
-        shell.say(f"Deltas compare with {prior} at the same day of the term.", caption=True)
+    against = f" Change against {prior} at the same day of the term." if prior else ""
+    with shell.card("sum", order=1):
+        cells = st.columns([1, 0.12, 1, 0.12, 1], vertical_alignment="center")
+        shell.metric(cells[0], "Income", now["income"], delta=_delta("income"),
+                     help="Money in this term: dues, sponsorship, transfers." + against)
+        cells[1].markdown('<div class="ais-op">−</div>', unsafe_allow_html=True)
+        shell.metric(cells[2], "Expenses", now["expenses"], delta=_delta("expenses"), inverse=True,  # F11
+                     help="Money out this term, every committee." + against)
+        cells[3].markdown('<div class="ais-op">=</div>', unsafe_allow_html=True)
+        shell.metric(cells[4].container(key="net-figure"), "Net this term", now["net"], delta=_delta("net"),
+                     help="Income minus expenses." + against)
 
     # --- Sponsorship goal (M20), condensed ---------------------------------------
     #
@@ -185,6 +146,10 @@ def render(bundle, semesters: list[str], *, as_page: bool = False) -> None:
         shell.heading(
             "Committee budgets",
             shell.legend([("Over", t.OVER), ("85%+", t.APPROACHING), ("On track", t.ON_TRACK)]),
+            help=(
+                f"Each bar is the share of a committee's budget used. The line marks how much of the "
+                f"term has passed ({clock.fraction:.0%}); a bar past it is spending ahead of the calendar."
+            ),
         )
         if committees.empty:
             shell.empty_state(
@@ -213,21 +178,8 @@ def render(bundle, semesters: list[str], *, as_page: bool = False) -> None:
     with flow_column:
         with shell.card("flow", order=3):
             steps = pace.flow_steps(bundle.transactions, bundle.terms, selected_semester, committee_id=committee_id)
-            shell.heading("Where the money went")
-            shell.chart(charts.flow_waterfall(steps), key="dash_flow", reveal="up")
-
-        # --- Net by week ---------------------------------------------------------
-
-        with shell.card("history", order=4):
-            lines = [(selected_semester, pace.cumulative_by_day(
-                transactions, bundle.terms, selected_semester, through_day=day
-            ))]
-            earlier = prior
-            while earlier and len(lines) < 3:
-                lines.append((earlier, pace.cumulative_by_day(transactions, bundle.terms, earlier)))
-                earlier = pace.equivalent_prior(bundle.terms, earlier)
             shell.heading(
-                "Net by week",
-                shell.legend([(label, color) for (label, _), color in zip(lines, [t.INK, *t.HISTORY])]),
+                "Where the money went",
+                help="Income by source builds up, spending by committee comes off, and the last bar is the net for the term.",
             )
-            shell.chart(charts.net_by_week(lines, clock), key="dash_net", reveal="left")
+            shell.chart(charts.flow_waterfall(steps), key="dash_flow", reveal="up")

@@ -89,7 +89,11 @@ with controls[0]:
         )
     else:
         committee_id = identity.committee_id
-        st.markdown(f"**Committee**  \n{vp_committees.title_for(committee_id)}")
+        shell.html(
+            "**Committee**"
+            + shell.tip("You are seeing only your own committee. Treasurers can view any committee.")
+            + f"  \n{vp_committees.title_for(committee_id)}"
+        )
 
 # A committee can own several budget lines. Everything below is about all of them
 # together; an unmapped committee is just its own single line.
@@ -103,11 +107,6 @@ with controls[1]:
         semesters,
         index=default_semester_index(bundle.transactions, bundle.terms),
         key="officer_semester",
-    )
-
-if not can_choose:
-    st.caption(
-        "You are seeing only your own committee. Treasurers can view any committee."
     )
 
 # How current the figures are, so a VP knows whether last week's charges are in.
@@ -176,12 +175,14 @@ if left_at_end is not None:
         "value": _dollars(abs(left_at_end)),
         "currency": False,
         "tone": "over" if left_at_end < 0 else tone,
+        "help": "Assumes you keep spending at the pace you have so far.",
     })
 tiles_column, bar_column = st.columns([3, 1.35], gap="medium")
 with tiles_column:
-    shell.metric_row(tiles)
-    if left_at_end is not None:
-        st.caption("Left at term end assumes you keep spending at the pace you have so far.")
+    # shell.metric_row, with each tile's "?" (metric_row doesn't pass help on).
+    for column, tile in zip(st.columns(len(tiles)), tiles):
+        shell.metric(column, tile["label"], tile["value"], currency=False,
+                     tone=tile.get("tone"), help=tile.get("help"))
 with bar_column:
     with shell.card("spend-bar", order=2):
         shell.html(committee_panels.spend_bar(position, status, elapsed))
@@ -240,11 +241,18 @@ flag_ui.updates_panel(
 flow_column, pace_column = st.columns(2, gap="large")
 
 with flow_column:
-    st.subheader("Where the money went")
     # By kind of spending (food, bar tabs, supplies...), not by payee: forty
     # restaurants each with 2% told a VP nothing (2026-11-09).
     spending = scoped if scoped.empty else scoped[~budget_domain.is_transfer(scoped)]
     kinds = spend_kinds.kind_split(spending)
+    stores = [] if kinds.empty else [k for k in kinds["Kind"] if k in set(spend_kinds.BIG_STORES.values())]
+    st.subheader(
+        "Where the money went",
+        help="Grouped by what the merchant sells."
+        + (f" {', '.join(stores)} {'is' if len(stores) == 1 else 'are'} shown by name: a big-store "
+           "receipt could be food, drinks or supplies, and the bank doesn't say which."
+           if stores else ""),
+    )
     if kinds.empty:
         shell.empty_state("Nothing spent yet", f"No charges are booked to {chosen_name} in {semester}.")
     else:
@@ -252,17 +260,12 @@ with flow_column:
             committee_charts.kind_bars(kinds, committee_charts.committee_color(committee_id)),
             key="committee_kinds",
         )
-        stores = [k for k in kinds["Kind"] if k in set(spend_kinds.BIG_STORES.values())]
-        shell.say(
-            "Grouped by what the merchant sells."
-            + (f" {', '.join(stores)} {'is' if len(stores) == 1 else 'are'} shown by name: a big-store "
-               "receipt could be food, drinks or supplies, and the bank doesn't say which."
-               if stores else ""),
-            caption=True,
-        )
 
 with pace_column:
-    st.subheader("Spending pace")
+    st.subheader(
+        "Spending pace",
+        help="Solid: what you have spent. Dashed: an even spend across the term, so above it means ahead of pace.",
+    )
     term_window = date_range_for_semester(bundle.terms, semester)
     if term_window is None:
         shell.empty_state("No term dates on record", f"{semester} has no start and end dates set.")
@@ -278,11 +281,6 @@ with pace_column:
         )
         pace_figure.update_layout(height=360)
         shell.chart(pace_figure, key="committee_pace")
-        shell.say(
-            "Solid: what you have spent. Dashed: an even spend across the term, so "
-            "above it means ahead of pace.",
-            caption=True,
-        )
 
 income_split = budget_domain.categorize_flow(scoped, budget_domain.INCOME)
 
@@ -332,7 +330,13 @@ if past_terms is not None:
     tag = vp_history.VERDICT_TAGS.get(usual["verdict"]) if usual else None
     kind = {"more": "approaching", "same": "on track", "less": "on track"}.get(usual["verdict"] if usual else "")
     st.markdown(
-        "**This term vs. past terms**" + (f" &nbsp;{shell.pill(tag, kind)}" if tag else ""),
+        "**This term vs. past terms**"
+        + shell.tip(
+            "Each bar is how much of that term's budget was spent by the same point in the term, "
+            "measured against that term's own budget, as of the earlier of today and the latest "
+            "charge on record. In See the numbers, the black mark on each bar is where this term is now."
+        )
+        + (f" &nbsp;{shell.pill(tag, kind)}" if tag else ""),
         unsafe_allow_html=True,
     )
     sentence = vp_history.short_sentence(past_terms)
@@ -347,18 +351,11 @@ if past_terms is not None:
         ),
         key="committee_same_point",
     )
-    st.caption(
-        f"Each bar is how much of that term's budget was spent by the same point: "
-        f"{past_terms.elapsed_percent:.0f}% of the way through the term."
-    )
+    st.caption(f"Measured at the same point: {past_terms.elapsed_percent:.0f}% of the way through the term.")
     with st.expander("See the numbers"):
         with shell.card("committee-compare", order=4):
             shell.html(committee_panels.comparison_table(past_terms, status))
-        st.caption(
-            f"Measured as of {past_terms.as_of:%b} {past_terms.as_of.day} (the earlier of today and "
-            "the latest charge on record). Each term is measured against its own budget. "
-            "The black mark on each bar is where this term is now."
-        )
+        st.caption(f"Measured as of {past_terms.as_of:%b} {past_terms.as_of.day}.")
 
 st.markdown('<hr class="ais-rule" />', unsafe_allow_html=True)
 

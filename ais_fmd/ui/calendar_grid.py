@@ -8,6 +8,10 @@ what is on the club calendar from what they are only planning.
 Seven columns don't fit a phone: every event shrank to a letter. So the same
 chips are also drawn as a list grouped by day, and CSS shows the list instead
 of the grid on narrow screens (2026-11-09).
+
+`editable=True` (2026-11-13) makes it work like a calendar app through
+ui/clickable.py: each day carries `data-day`, so a double-click (or its "+")
+asks to add an event there, and a `movable` chip can be dragged to another day.
 """
 
 from __future__ import annotations
@@ -28,6 +32,7 @@ class Chip:
     tip: str = ""
     planned: bool = False
     pick: str | None = None   # set: the chip is clickable and reports this (ui/clickable.py)
+    movable: bool = False     # with `pick` and an editable grid: can be dragged to another day
 
 
 def css() -> str:
@@ -52,6 +57,19 @@ def css() -> str:
 .ais-cal-ev[data-pick]:focus-visible {{ outline:2px solid {t.ACCENT}; outline-offset:1px; }}
 .ais-cal-meta {{ display:block; color:{t.INK_MUTE}; font-size:.68rem; }}
 .ais-cal-ev .spent {{ color:{t.ACCENT_DIM}; font-weight:600; }}
+.ais-cal-ev .est {{ color:{t.INK_SOFT}; }}
+.ais-cal-hint {{ font-size:.78rem; color:{t.INK_MUTE}; }}
+.ais-cal-top {{ display:flex; align-items:center; justify-content:space-between; min-height:20px; }}
+.ais-cal-add {{ width:20px; height:20px; border-radius:50%; display:inline-flex; align-items:center;
+  justify-content:center; font-size:15px; line-height:1; color:{t.INK_SOFT}; cursor:pointer; opacity:0;
+  transition:opacity .12s ease, background .12s ease; }}
+.ais-cal-day:hover .ais-cal-add, .ais-cal-add:focus-visible {{ opacity:1; }}
+.ais-cal-add:hover {{ background:{t.ACCENT}; color:#fff; }}
+.ais-cal.editable .ais-cal-day[data-day] {{ cursor:default; user-select:none; }}
+.ais-cal-ev[draggable="true"] {{ cursor:grab; }}
+.ais-cal-ev.dragging {{ opacity:.4; }}
+.ais-cal-day.drop {{ outline:2px dashed {t.ACCENT}; outline-offset:-2px; background:{t.ACCENT_TINT}; }}
+@media (hover: none) {{ .ais-cal-add {{ opacity:1; }} }}
 .ais-agenda {{ display:none; margin-top:.5rem; }}
 .ais-agenda-day {{ display:flex; gap:12px; padding:10px 12px; background:{t.CARD}; border-radius:12px;
   box-shadow:{t.SHADOW}; margin-bottom:8px; }}
@@ -74,10 +92,12 @@ def css() -> str:
 CSS = css()  # the light stylesheet, for code that imported the constant
 
 
-def _chip_html(chip: Chip, day: date, today: date) -> str:
+def _chip_html(chip: Chip, day: date, today: date, *, editable: bool = False) -> str:
     kind = " planned" if chip.planned else (" past" if day < today else "")
     color = chip.color or theme.tokens().INK_MUTE
     pick = f' data-pick="{escape(chip.pick)}" role="button" tabindex="0"' if chip.pick else ""
+    if editable and chip.pick and chip.movable:
+        pick += f' draggable="true" data-drag="{escape(chip.pick)}" data-from="{day.isoformat()}"'
     return (
         f'<div class="ais-cal-ev{kind}" style="--c:{color}" title="{escape(chip.tip)}"{pick}>'
         f'<b>{escape(chip.title)}</b><span class="ais-cal-meta">{chip.meta_html or "&nbsp;"}</span></div>'
@@ -100,8 +120,15 @@ def agenda(year: int, month: int, chips: dict[date, list[Chip]], *, today: date 
     return f'<div class="ais-agenda">{"".join(rows)}</div>'
 
 
-def month_grid(year: int, month: int, chips: dict[date, list[Chip]], *, today: date | None = None) -> str:
-    """The month as a grid; on a phone, CSS swaps in the day list drawn alongside it."""
+def month_grid(
+    year: int, month: int, chips: dict[date, list[Chip]], *, today: date | None = None, editable: bool = False,
+) -> str:
+    """
+    The month as a grid; on a phone, CSS swaps in the day list drawn alongside it.
+
+    `editable`: days take a double-click or their "+" to add an event
+    (`add:<day>`), and movable chips drag to another day (`move:<pick>:<day>`).
+    """
     today = today or date.today()
     cells = [f'<div class="ais-cal-dow">{name}</div>' for name in ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")]
     for week in calendar.Calendar().monthdatescalendar(year, month):
@@ -110,7 +137,16 @@ def month_grid(year: int, month: int, chips: dict[date, list[Chip]], *, today: d
             classes = ["ais-cal-day"] + ([] if inside else ["out"]) + (["today"] if day == today else [])
             drawn = []
             for chip in chips.get(day, []) if inside else []:
-                drawn.append(_chip_html(chip, day, today))
-            number = day.day if inside else ""
-            cells.append(f'<div class="{" ".join(classes)}"><span class="ais-cal-num">{number}</span>{"".join(drawn)}</div>')
-    return css() + f'<div class="ais-cal">{"".join(cells)}</div>' + agenda(year, month, chips, today=today)
+                drawn.append(_chip_html(chip, day, today, editable=editable))
+            number = f'<span class="ais-cal-num">{day.day if inside else ""}</span>'
+            target = ""
+            if editable and inside:
+                target = f' data-day="{day.isoformat()}"'
+                number = (
+                    f'<div class="ais-cal-top">{number}<span class="ais-cal-add" data-pick="add:{day.isoformat()}" '
+                    f'role="button" tabindex="0" title="Add an event on {day:%b %-d}" '
+                    f'aria-label="Add an event on {day:%b %-d}">+</span></div>'
+                )
+            cells.append(f'<div class="{" ".join(classes)}"{target}>{number}{"".join(drawn)}</div>')
+    grid_class = "ais-cal editable" if editable else "ais-cal"
+    return css() + f'<div class="{grid_class}">{"".join(cells)}</div>' + agenda(year, month, chips, today=today)

@@ -236,16 +236,33 @@ def _hub_tabs(view_file: str) -> dict[str, str]:
     return {}
 
 
+def _page_tabs(view_file: str) -> list[str]:
+    """The labels of a page's own keyed `st.tabs([...], key=...)`, e.g. Treasury's."""
+    tree = ast.parse((ROOT / "ais_fmd" / "views" / view_file).read_text())
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Call) and getattr(node.func, "attr", "") == "tabs"
+            and node.args and isinstance(node.args[0], ast.List)
+            and any(keyword.arg == "key" for keyword in node.keywords)
+        ):
+            return [element.value for element in node.args[0].elts if isinstance(element, ast.Constant)]
+    return []
+
+
 @pytest.mark.parametrize("page", assistant_pages.PAGES, ids=lambda p: p.name)
 def test_every_page_the_assistant_names_exists_with_that_role(page):
     nav = _nav_entries()
     assert page.nav in nav, f"{page.nav} is not in app.py; update assistant_pages.py"
     view_file, nav_role = nav[page.nav]
     tabs = _hub_tabs(view_file)
-    if page.tab and page.tab != page.nav or tabs:
+    if tabs:
         label = page.tab or page.nav
         assert label in tabs, f"{label} is not a tab of {page.nav}"
         assert tabs[label] == page.min_role
+    elif page.tab and page.tab != page.nav:
+        # A tab of a single page (Treasury -> Reconcile): same role as the page.
+        assert page.tab in _page_tabs(view_file), f"{page.tab} is not a tab of {page.nav}"
+        assert nav_role == page.min_role
     else:
         assert nav_role == page.min_role
 

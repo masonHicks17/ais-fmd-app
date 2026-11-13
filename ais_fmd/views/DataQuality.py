@@ -63,11 +63,11 @@ for issue in issues:
 # --- F7 decision support -----------------------------------------------------
 
 st.markdown('<hr class="ais-rule" />', unsafe_allow_html=True)
-st.markdown("#### Disputed purpose mappings")
-st.caption(
-    "The original code mapped these purposes to committees that contradict the "
+shell.heading(
+    "Disputed purpose mappings",
+    help="The original code mapped these purposes to committees that contradict the "
     "reference table shown to treasurers. The original behaviour was preserved so "
-    "historical figures did not shift — here is what changing it would affect."
+    "historical figures did not shift — here is what changing it would affect.",
 )
 
 report = quality.disputed_mapping_report(bundle.transactions)

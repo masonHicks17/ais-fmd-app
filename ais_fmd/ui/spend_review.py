@@ -56,14 +56,13 @@ def treasurer_panel(transactions: pd.DataFrame, identity, *, inline: bool = Fals
     )
     with frame:
         _flash()
-        shell.say(
-            "Haiku checks each new charge against its committee's spending profile "
-            "(config/spend_review_prompt.md) and flags the ones worth a question. "
-            "It never changes a booking.",
-            caption=True,
-        )
         columns = st.columns(3)
-        columns[0].metric("New charges to check", f"{selection.count:,}")
+        columns[0].metric(
+            "New charges to check", f"{selection.count:,}",
+            help="Haiku checks each new charge against its committee's spending profile "
+                 "(config/spend_review_prompt.md) and flags the ones worth a question. "
+                 "It never changes a booking.",
+        )
         # Four places below a dollar: a whole month of Haiku is fractions of a cent.
         spent_text = "$0.00" if not spent else (f"${spent:,.4f}" if spent < 1 else f"${spent:,.2f}")
         columns[1].metric("Model spend this month", spent_text, help=f"Capped at ${cap:,.2f}.")

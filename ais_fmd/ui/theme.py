@@ -333,7 +333,7 @@ def app_css(palette: "Tokens | Palette | None" = None) -> str:
   header [data-testid="stTopNav"] {{
     order: -1; margin-right: auto; max-width: calc(100vw - 180px);
   }}
-  .st-key-ais-profile button {{
+  .stApp .st-key-ais-profile button {{
     border-radius: 999px; height: 44px; padding: 0 16px 0 10px;
     background: {t.CARD}; border: 1px solid {t.GRID}; color: {t.INK}; font-weight: 500;
   }}
@@ -393,6 +393,75 @@ def app_css(palette: "Tokens | Palette | None" = None) -> str:
   .ais-section p {{ color: {t.INK_SOFT}; font-size: .95rem; margin: 0; }}
   .ais-head p {{ color: {t.INK_SOFT}; font-size: 1rem; margin: 0; max-width: 70ch; }}
   .ais-rule {{ height: 0; background: none; margin: 1.2rem 0; border: 0; }}
+
+  /* "?" tooltips (shell.tip): the description behind a title, on hover or focus. */
+  .ais-tip {{
+    position: relative; display: inline-flex; align-items: center; justify-content: center;
+    width: 18px; height: 18px; margin-left: 8px; border-radius: 50%; vertical-align: middle;
+    border: 1.5px solid {t.INK_MUTE}; color: {t.INK_SOFT}; font-size: 11px; font-weight: 700;
+    letter-spacing: 0; line-height: 1; cursor: help; flex: none;
+  }}
+  h1 .ais-tip {{ width: 22px; height: 22px; font-size: 13px; margin-left: 12px; vertical-align: 0.35em; }}
+  h2 .ais-tip {{ width: 20px; height: 20px; font-size: 12px; margin-left: 10px; vertical-align: 0.25em; }}
+  .ais-tip:hover, .ais-tip:focus {{ border-color: {t.INK}; color: {t.INK}; outline: none; }}
+  .ais-tip::after {{
+    content: attr(data-tip); position: absolute; left: 50%; top: calc(100% + 8px); transform: translateX(-50%);
+    width: max-content; max-width: 320px; padding: 9px 12px; border-radius: 12px;
+    background: {t.INK}; color: {t.ON_INK}; font-size: 13px; font-weight: 400; line-height: 1.45;
+    letter-spacing: 0; text-align: left; white-space: normal; box-shadow: {t.SHADOW_HOVER};
+    opacity: 0; visibility: hidden; transition: opacity .15s ease; z-index: 1000; pointer-events: none;
+  }}
+  .ais-tip:hover::after, .ais-tip:focus::after {{ opacity: 1; visibility: visible; }}
+  [class*="st-key-hero-"] .ais-tip {{ border-color: {on_accent}; }}
+  [class*="st-key-hero-"] .ais-tip::after {{ background: {t.CARD}; color: {t.INK}; }}
+  /* Cards may clip; let a tooltip out of its card. */
+  [class*="st-key-card-"], [class*="st-key-hero-"], .ais-card-head, .ais-head, .ais-section {{ overflow: visible; }}
+  /* Cards rise in and lift on hover, so each is its own stacking layer and a
+     later card would paint over an open tooltip. While a tip is open, lift
+     every block around it above its siblings. */
+  .stApp :is([data-testid="stVerticalBlock"], [data-testid="stHorizontalBlock"], [data-testid="stColumn"],
+    [data-testid="stElementContainer"], [data-testid="stLayoutWrapper"], [data-testid="stVerticalBlockBorderWrapper"],
+    [data-testid="stMarkdownContainer"], [data-testid="stHeading"], [class*="st-key-"], .ais-clickable)
+    :is(:has(.ais-tip:hover), :has(.ais-tip:focus)) {{ position: relative; z-index: 1000; }}
+  .stApp :is([data-testid="stVerticalBlock"], [data-testid="stHorizontalBlock"], [data-testid="stColumn"],
+    [data-testid="stElementContainer"], [data-testid="stLayoutWrapper"], [data-testid="stVerticalBlockBorderWrapper"],
+    [class*="st-key-"]):is(:has(.ais-tip:hover), :has(.ais-tip:focus)) {{ overflow: visible; }}
+
+  /* Bigger targets (2026-11-13): buttons, view switchers and pickers were
+     small to hit. Pickers are capped in width so a lone one doesn't run the
+     width of the page. */
+  .stApp .stButton > button:not([data-testid="stBaseButton-tertiary"]), .stApp .stDownloadButton > button,
+  .stApp .stFormSubmitButton > button, .stMain [data-testid="stPopover"]:not(.st-key-ais-profile *) > div > button {{
+    min-height: 44px; padding: 8px 20px; border-radius: 999px; font-size: 15px;
+  }}
+  .stApp [data-testid="stButtonGroup"] button {{ min-height: 44px; padding: 6px 20px; font-size: 15px; }}
+  .stApp [data-testid="stSelectbox"] [data-baseweb="select"] > div {{ min-height: 46px; }}
+  .stMain [data-testid="stSelectbox"] {{ max-width: 440px; }}
+  [role="dialog"] [data-testid="stSelectbox"] {{ max-width: none; }}
+
+  /* Home header: the term, once, with a slim progress bar. */
+  .ais-term-bar {{
+    display: inline-block; width: 120px; height: 6px; margin: 0 10px 0 12px; vertical-align: middle;
+    background: {t.GRID}; border-radius: 999px; overflow: hidden;
+  }}
+  .ais-term-bar i {{ display: block; height: 100%; background: {t.ACCENT}; border-radius: 999px; }}
+
+  /* Income − Expenses = Net, one card (term_analysis). */
+  .st-key-net-figure [data-testid="stMetricValue"] {{ color: {t.ACCENT_DIM}; }}
+  .ais-op {{ font-size: 2rem; font-weight: 300; color: {t.INK_MUTE}; text-align: center; line-height: 1; }}
+
+  /* Dues summary card. */
+  .ais-dues-head {{ display: flex; justify-content: space-between; align-items: baseline; gap: 16px; }}
+  .ais-dues-head b {{ font-size: 1.9rem; font-weight: 600; letter-spacing: -.02em; color: {t.INK}; }}
+  .ais-dues-head span {{ font-size: 1.9rem; font-weight: 600; color: {t.ACCENT_DIM}; font-variant-numeric: tabular-nums; }}
+  .ais-dues-head span.muted {{ font-size: .95rem; font-weight: 400; color: {t.INK_SOFT}; }}
+  .ais-dues-bar {{ height: 12px; border-radius: 999px; background: {t.GRID}; overflow: hidden; margin: 10px 0 18px; }}
+  .ais-dues-bar i {{ display: block; height: 100%; background: {t.ACCENT}; border-radius: 999px; }}
+  .ais-stat {{ display: flex; flex-direction: column; gap: 2px; padding-left: 18px; border-left: 1px solid {t.GRID}; }}
+  .ais-stat.first {{ padding-left: 0; border-left: 0; }}
+  .ais-stat span {{ font-size: 13.5px; color: {t.INK_SOFT}; display: inline-flex; align-items: center; }}
+  .ais-stat b {{ font-size: 1.35rem; font-weight: 600; color: {t.INK}; font-variant-numeric: tabular-nums; }}
+  .ais-stat small {{ font-size: 12.5px; color: {t.INK_MUTE}; }}
 
   /* Cards */
   [class*="st-key-card-"], [class*="st-key-hero-"] {{
@@ -586,14 +655,10 @@ def app_css(palette: "Tokens | Palette | None" = None) -> str:
   .ais-meter-mark {{ position: absolute; top: -4px; bottom: -4px; border-left: 2px solid {t.INK}; }}
   .ais-meter-value {{ width: 42px; text-align: right; }}
   /* Committees to watch: one progress row per committee. */
+  .ais-stat-row {{ display:flex; flex-wrap:wrap; gap:14px 0; margin:.35rem 0 .9rem; }}
+  .ais-stat-row .ais-stat {{ padding-right:18px; }}
+  .ais-stat b.over {{ color:{t.ACCENT_DIM}; }}
   .ais-event-facts {{ display:flex; flex-wrap:wrap; align-items:center; gap:8px; color:{t.INK_SOFT}; font-size:.9rem; margin-bottom:.25rem; }}
-  .ais-pace-rows {{ display: flex; flex-direction: column; gap: 14px; margin: 6px 0 4px; }}
-  .ais-pace-head {{ display: flex; justify-content: space-between; align-items: baseline; gap: 10px; margin-bottom: 6px; }}
-  .ais-pace-head span {{ font-size: 14px; color: {t.INK}; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }}
-  .ais-pace-head b {{ font-size: 15px; color: {t.INK}; font-variant-numeric: tabular-nums; }}
-  .ais-pace-row .ais-meter-track {{ height: 12px; }}
-  .ais-pace-row .ais-meter-mark {{ top: -5px; bottom: -5px; border-left-width: 2px; border-left-style: dashed; }}
-  .ais-pace-row small {{ display: block; margin-top: 5px; font-size: 12.5px; color: {t.INK_MUTE}; }}
 
   /* Tables, expanders */
   [data-testid="stDataFrame"] {{ border-radius: 16px; overflow: hidden; }}

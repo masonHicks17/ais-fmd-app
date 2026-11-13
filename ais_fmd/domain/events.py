@@ -40,6 +40,7 @@ from datetime import date, datetime, time, timedelta
 
 import pandas as pd
 
+from ..config.categories import COMMITTEE_BY_NAME
 from .details import tidy
 
 # Committee ids (config/categories.py). The club's seven committees since
@@ -301,6 +302,27 @@ def _ics_unescape(text: str) -> str:
     return text.replace("\\n", " ").replace("\\,", ",").replace("\\;", ";").strip()
 
 
+_LABELLED_LINE = re.compile(r"^(Owner|Audience|Status|Committee):\s*(.*)$", re.IGNORECASE)
+
+
+def _ics_description(raw: str) -> tuple[str | None, dict[str, str]]:
+    """
+    The description, and the "Owner: ..." style lines at its end that an
+    export from this app writes (domain/calendar_export.py), read back into
+    their fields so a round trip through Google Calendar changes nothing.
+    """
+    lines = raw.split("\\n")
+    labelled: dict[str, str] = {}
+    while lines:
+        match = _LABELLED_LINE.match(_ics_unescape(lines[-1]))
+        if not match:
+            break
+        labelled.setdefault(match.group(1).lower(), match.group(2).strip())
+        lines.pop()
+    text = " ".join(_ics_unescape(line) for line in lines if _ics_unescape(line))
+    return (text or None), {k: v for k, v in labelled.items() if v}
+
+
 def parse_ics(data: bytes, filename: str, terms: pd.DataFrame) -> ParseResult:
     """
     Events from an .ics file -- what Google Calendar's "Export" gives you.
@@ -328,7 +350,9 @@ def parse_ics(data: bytes, filename: str, terms: pd.DataFrame) -> ParseResult:
         end = fields.get("DTEND", "")
         end_time = f"{end[9:11]}:{end[11:13]}" if len(end) >= 13 else None
         term_id, _ = term_for_day(terms, day)
-        description = _ics_unescape(fields.get("DESCRIPTION", "")) or None
+        description, labelled = _ics_description(fields.get("DESCRIPTION", ""))
+        said = labelled.get("committee", "").lower()
+        named = COMMITTEE_BY_NAME.get(said)
         result.events.append(
             Event(
                 event_date=day,
@@ -337,7 +361,11 @@ def parse_ics(data: bytes, filename: str, terms: pd.DataFrame) -> ParseResult:
                 end_time=end_time,
                 location=_ics_unescape(fields.get("LOCATION", "")) or None,
                 description=description,
-                committee_id=infer_committee(title, description, None),
+                owner=labelled.get("owner"),
+                audience=labelled.get("audience"),
+                status=labelled.get("status"),
+                committee_id=named.id if named else None if said == "none" else infer_committee(
+                    title, labelled.get("audience") or description, labelled.get("owner")),
                 term_id=term_id,
                 source=f"Calendar file: {filename}",
             )

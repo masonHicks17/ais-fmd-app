@@ -14,15 +14,15 @@ from ais_fmd import auth
 from ais_fmd.data import repositories as repo
 from ais_fmd.domain import report as report_domain
 from ais_fmd.domain.terms import default_semester_index, ordered_semesters
-from ais_fmd.ui import shell
+from ais_fmd.ui import reconcile_tab, shell
 
 # Where each alert's "→" line leads. The hub tab is chosen the way Home does it:
 # `shell.hub` reads the hub's session key before it draws.
 _ACTION_TARGETS = {
     "unreconciled": ("ais_fmd/views/Reconciliation.py", None),
     "uncategorized_backlog": ("ais_fmd/views/TransactionsHub.py", "Review Queue"),
-    "stale_data": ("ais_fmd/views/TransactionsHub.py", "Import"),
-    "unbudgeted_spend": ("ais_fmd/views/Treasury.py", None),
+    "stale_data": ("ais_fmd/views/Treasury.py", "Reconcile"),
+    "unbudgeted_spend": ("ais_fmd/views/Treasury.py", "Budgets"),
 }
 
 auth.require(auth.Role.MEMBER)
@@ -85,7 +85,9 @@ with tab_alerts:
                     page, tab = target
                     if st.button(alert.action, key=f"alert_go_{alert.code}_{index}", type="tertiary",
                                  icon=":material/arrow_forward:"):
-                        if tab:
+                        if tab and page.endswith("Treasury.py"):
+                            reconcile_tab.open_treasury(tab, reconcile_tab.BANK)
+                        elif tab:
                             st.session_state["transactions_hub"] = tab
                         st.switch_page(page)
                 elif alert.action:
@@ -108,11 +110,11 @@ uploaded. Perfectly clean data can still raise every alert on this page.
 # ============================================================================
 
 with tab_report:
-    st.markdown("#### Semester report")
-    st.caption(
-        "A self-contained HTML file: headline figures, budget against actual, "
+    shell.heading(
+        "Semester report",
+        help="A self-contained HTML file: headline figures, budget against actual, "
         "largest expenses, dues, and anything outstanding. Opens in any browser "
-        "and prints to PDF — the print stylesheet is included."
+        "and prints to PDF — the print stylesheet is included.",
     )
 
     pack = report_domain.build(

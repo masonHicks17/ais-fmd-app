@@ -106,8 +106,10 @@ with left:
     )
 
 with right:
-    st.markdown("#### Committee spending")
-    st.caption("Percentage of what each committee actually spent in the baseline term.")
+    shell.heading(
+        "Committee spending",
+        help="Percentage of what each committee actually spent in the baseline term.",
+    )
 
     multipliers: dict[int, float] = {}
     active = [
@@ -156,7 +158,11 @@ projection = scenarios.project(baseline, scenario)
 # --- Outcome -----------------------------------------------------------------
 
 st.markdown('<hr class="ais-rule" />', unsafe_allow_html=True)
-st.markdown("#### Projected outcome")
+shell.heading(
+    "Projected outcome",
+    help="Projections assume next term resembles the baseline in everything not "
+    "adjusted here. They are a planning aid, not a forecast.",
+)
 
 metrics = st.columns(4)
 metrics[0].metric(
@@ -256,7 +262,3 @@ if not committees.empty:
         },
     )
 
-st.caption(
-    "Projections assume next term resembles the baseline in everything not "
-    "adjusted here. They are a planning aid, not a forecast."
-)
