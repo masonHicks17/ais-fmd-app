@@ -139,5 +139,5 @@ if can_edit:
                     opening_balance=opening,
                     closing_balance=closing,
                 )
-                shell.notify("success" if check.balanced else "warning", check.explain())
+                shell.flash("success" if check.balanced else "warning", check.explain())
                 st.rerun()

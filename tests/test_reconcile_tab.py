@@ -365,8 +365,10 @@ def test_dues_upload_roster_opens_treasury_reconcile_on_the_roster(seeded_db, us
     assert app.session_state[reconcile_tab.ROSTER_SEMESTER_KEY] == semester
 
 
-def test_no_hub_offers_the_old_import_view():
+def test_the_hub_keeps_upstreams_import_and_review():
+    # Release 2026-11-13 rebuilt statement import as "Import & review"; the merge
+    # kept it beside Reconcile rather than folding it in.
     from tests.test_assistant import _hub_tabs
 
-    assert "Import" not in _hub_tabs("TransactionsHub.py")
-    assert not (VIEWS / "ImportStatement.py").exists()
+    assert "Import & review" in _hub_tabs("TransactionsHub.py")
+    assert (VIEWS / "ImportStatement.py").exists()

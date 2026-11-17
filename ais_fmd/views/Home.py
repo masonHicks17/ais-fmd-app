@@ -207,7 +207,7 @@ with side:
             if "budget" in code:
                 target = (_HERE, None)  # the committee budgets section below
             elif "backlog" in code or "uncateg" in code:
-                target = ("ais_fmd/views/TransactionsHub.py", "Review Queue")
+                target = ("ais_fmd/views/TransactionsHub.py", "Needs attention")
             elif "reconcil" in code:
                 target = ("ais_fmd/views/Reconciliation.py", None)
             elif "stale" in code:

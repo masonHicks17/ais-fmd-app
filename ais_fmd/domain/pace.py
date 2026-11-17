@@ -17,7 +17,7 @@ from dataclasses import dataclass
 import pandas as pd
 
 from ..config.categories import BUDGETED_COMMITTEE_IDS
-from .budgets import INCOME, budget_vs_actual, burn_rate_projection, categorize_flow, spending_by_committee
+from .budgets import INCOME, budget_vs_actual, burn_rate_projection, categorize_flow, is_transfer, spending_by_committee
 from .terms import (
     attach_semester,
     date_range_for_semester,
@@ -111,7 +111,14 @@ def _amounts(frame: pd.DataFrame) -> pd.Series:
     return pd.to_numeric(frame["amount"], errors="coerce").fillna(0.0)
 
 
+def _without_transfers(frame: pd.DataFrame) -> pd.DataFrame:
+    """Transfers move money between the org's own accounts: never income or spend."""
+    return frame[~is_transfer(frame)] if not frame.empty else frame
+
+
 def _totals(scoped: pd.DataFrame) -> dict[str, float]:
+    if scoped is not None and not scoped.empty:
+        scoped = _without_transfers(scoped)
     if scoped is None or scoped.empty:
         return {"income": 0.0, "expenses": 0.0, "net": 0.0, "count": 0, "budgeted_spent": 0.0}
     amounts = _amounts(scoped)
@@ -198,7 +205,7 @@ def cumulative_by_day(
         return pd.DataFrame({"Day": list(index), "Value": [0.0] * len(index)})
 
     tagged = attach_semester(df_transactions, df_terms)
-    scoped = tagged[tagged["Semester"] == semester]
+    scoped = _without_transfers(tagged[tagged["Semester"] == semester])
     days = (pd.to_datetime(scoped["transaction_date"], errors="coerce") - start).dt.days
     amounts = _amounts(scoped)
     if measure == "expenses":
@@ -369,6 +376,7 @@ def flow_steps(
     scoped = tagged[tagged["Semester"] == semester]
     if committee_id is not None:
         scoped = scoped[scoped["budget_category"] == committee_id]
+    scoped = _without_transfers(scoped)
     if scoped.empty:
         return []
 

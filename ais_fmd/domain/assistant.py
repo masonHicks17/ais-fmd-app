@@ -506,7 +506,7 @@ def tool_largest_transactions(args: dict, context: Context) -> Answer:
 def tool_uncategorized(args: dict, context: Context) -> Answer:
     frame = context.transactions
     pending = frame[frame["budget_category"].isna() | frame["purpose"].isna()]
-    review = pages.by_name("Review Queue")
+    review = pages.by_name("Needs attention")
     if context.scope.role == "officer":
         # Only this committee's rows are here, so org-wide uncategorized charges
         # are invisible -- say what the count covers instead of implying none exist.
@@ -514,7 +514,7 @@ def tool_uncategorized(args: dict, context: Context) -> Answer:
             return Answer(text=f"Every **{context.scope.committee}** charge has a purpose. "
                                "Charges not yet given a committee are the treasurer's to sort.")
         return Answer(text=f"**{len(pending):,}** {context.scope.committee} charges have no purpose yet. "
-                           "The treasurer works through these on the Review Queue.")
+                           "The treasurer works through these on Needs attention.")
     if pending.empty:
         return Answer(text="Every transaction has a committee and a purpose.", source=review.path)
     text = (
@@ -522,7 +522,7 @@ def tool_uncategorized(args: dict, context: Context) -> Answer:
         f"{format_currency(pending['amount'].abs().sum())} in absolute value."
     )
     if not context.scope.sees_every_committee:
-        return Answer(text=text + " The treasurer works through these on the Review Queue.", source=None)
+        return Answer(text=text + " The treasurer works through these on Needs attention.", source=None)
     return Answer(
         text=text + f" Work through them on {review.path}.",
         table=_transaction_table(pending.head(50)),

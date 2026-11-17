@@ -75,23 +75,29 @@ PAGES: tuple[PageInfo, ...] = (
         ("unpaid", "not paid", "hasn't paid", "haven't paid", "outstanding dues", "roster", "membership list", "owe dues"),
     ),
     PageInfo(
-        "Transactions", "Transactions", "Transactions", "member",
+        "Transactions", "Transactions", "All transactions", "member",
         "every transaction, with search and filters",
         ("transaction", "transactions", "purchase", "charge", "search", "find a payment", "receipt", "statement line"),
     ),
     PageInfo(
-        "Review Queue", "Transactions", "Review Queue", "treasurer",
-        "transactions the categorizer could not resolve, waiting for a person to decide",
-        ("review queue", "uncategorized", "uncategorised", "needs review", "categorize", "categorise", "miscategorized"),
+        "Needs attention", "Transactions", "Needs attention", "treasurer",
+        "transactions the categorizer could not resolve, charges a VP disputed, and the AI check's flags",
+        ("needs attention", "review queue", "disputed", "ai check", "uncategorized", "uncategorised", "needs review", "categorize", "categorise", "miscategorized"),
+    ),
+    PageInfo(
+        "Import & review", "Transactions", "Import & review", "treasurer",
+        "upload a bank statement: the rules and Haiku sort it, you settle what is left, then the AI check "
+        "looks it over",
+        ("upload a bank statement", "upload a statement", "upload statements", "import statement",
+         "import a statement", "import & review", "import and review", "bank statement"),
     ),
     PageInfo(
         "Reconcile", "Treasury", "Reconcile", "treasurer",
-        "upload a bank statement, membership roster or event schedule and compare it with what the app "
+        "upload a membership roster, event schedule or bank statement and compare it with what the app "
         "holds, then apply the differences you tick (data otherwise arrives by the automatic sync)",
-        ("upload", "upload a bank statement", "upload a statement", "upload statements", "import statement",
-         "import a statement", "upload roster", "upload a roster", "upload the roster", "upload a membership list",
+        ("upload", "upload roster", "upload a roster", "upload the roster", "upload a membership list",
          "upload event schedule", "upload the event schedule", "upload a schedule", "compare a file",
-         "reconcile a file", "check a file"),
+         "reconcile a file", "check a file", "compare a statement", "reconcile a statement"),
     ),
     PageInfo(
         "Events", "Events", None, "member",
@@ -176,7 +182,7 @@ def find(topic: str) -> list[PageInfo]:
     Pages whose keywords appear in `topic` as whole words, best match first.
 
     The longest matching keyword decides, so "uncategorized transactions" lands
-    on the Review Queue ("uncategorized") rather than Transactions, and
+    on Needs attention ("uncategorized") rather than Transactions, and
     "unpaid dues" lands on the Roster rather than matching "paid dues" inside it.
     """
     lowered = topic.lower()

@@ -81,7 +81,7 @@ with st.expander("Add or update someone", expanded=True):
             )
             if result.ok:
                 repo.invalidate()
-                shell.notify("success", f"Saved access for {cleaned_email}.")
+                shell.flash("success", f"Saved access for {cleaned_email}.")
                 st.rerun()
             else:
                 shell.error_state("Could not save", result.error or "")
@@ -124,7 +124,7 @@ if remove_cols[1].button("Remove", disabled=not target):
     result = repo.remove_profile(target)
     if result.ok:
         repo.invalidate()
-        shell.notify("success", f"Removed {target}.")
+        shell.flash("success", f"Removed {target}.")
         st.rerun()
     else:
         shell.error_state("Could not remove", result.error or "")

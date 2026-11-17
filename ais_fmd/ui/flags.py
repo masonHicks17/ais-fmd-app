@@ -31,7 +31,7 @@ from ais_fmd.data import repositories as repo
 from ais_fmd.domain import flags as flags_domain
 from ais_fmd.domain.details import tidy
 from ais_fmd.domain.money import format_currency
-from ais_fmd.ui import shell
+from ais_fmd.ui import inbox, shell
 
 _NONCE = "_flag_form_nonce"
 _FLASH = "_flag_flash"
@@ -206,18 +206,25 @@ def vp_panel(
 # --- The treasurer's side -------------------------------------------------------
 
 
-def treasurer_panel(transactions: pd.DataFrame, actor: str) -> None:
+def treasurer_panel(transactions: pd.DataFrame, actor: str, *, inline: bool = False) -> None:
+    """
+    Open "This isn't ours" flags and their decisions. `inline` draws it straight
+    onto the page (a tab on Needs attention); otherwise it sits in an expander.
+    """
     flags = load_flags_or_none(None)
     if flags is None:
+        if inline:
+            st.caption("Flags can't be stored on this deployment yet.")
         return  # this deployment cannot store flags yet; nothing to show
 
     open_flags = flags[flags["status"] == flags_domain.OPEN] if not flags.empty else flags
     count = len(open_flags)
 
-    with st.expander(
+    frame = st.container() if inline else st.expander(
         f"Charges disputed by VPs ({count} open)",
         expanded=count > 0 or _FLASH in st.session_state,
-    ):
+    )
+    with frame:
         _flash()
         if count == 0:
             shell.say("No VP has an open flag. Nothing to review here.", caption=True)
@@ -252,15 +259,13 @@ def treasurer_panel(transactions: pd.DataFrame, actor: str) -> None:
 def _treasurer_decision(row: pd.Series, actor: str) -> None:
     """One open flag: show the evidence, take the treasurer's verdict, and apply it."""
     flag_id = int(row["flag_id"])
-    day = pd.Timestamp(row["transaction_date"]).date() if pd.notna(row["transaction_date"]) else "?"
     current_id = None if pd.isna(row["budget_category"]) else int(row["budget_category"])
     flagged_id = None if pd.isna(row["booked_to_committee_id"]) else int(row["booked_to_committee_id"])
     current_name = committee_name(current_id) or "no committee"
     moved_since = current_id != flagged_id
 
     with st.container(border=True):
-        shell.say(f"**{day}** · {format_currency(row['amount'])} · booked to **{current_name}**")
-        st.caption(str(row["details"] or "")[:140])
+        inbox.row_header(row.to_dict(), tag=f"Booked to {current_name}", tag_kind="plain")
         shell.say(f"> {row['note']}")
         st.caption(f"Flagged by {row['flagged_by']}")
 

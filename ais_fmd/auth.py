@@ -21,6 +21,7 @@ a secret that gets shared around a committee and never rotated.
 from __future__ import annotations
 
 import hmac
+import os
 from dataclasses import dataclass
 from enum import IntEnum
 
@@ -133,6 +134,36 @@ def _sandbox_open() -> bool:
     return settings.is_sandbox() and not settings.sandbox_login_enabled()
 
 
+_LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
+
+
+def _served_locally() -> bool:
+    """
+    True when the browser reached this server through a loopback address.
+
+    Sandbox resolves from secrets, and a mis-edited or unreadable secrets file
+    resolves to sandbox -- so on its own, sandbox would hand any visitor of the
+    deployed app a Treasurer session. The open sandbox is therefore only ever
+    served to the machine it runs on. Streamlit Community Cloud mounts the repo
+    at /mount/src; a request from another machine on the LAN carries this
+    machine's IP as its Host. No request context (AppTest, scripts) is local.
+    """
+    if os.path.isdir("/mount/src"):
+        return False
+    try:
+        host = str(st.context.headers.get("Host") or "")
+    except Exception:  # noqa: BLE001 - no request context outside a server
+        return True
+    if not host:
+        return True
+    if host.startswith("["):
+        name = host[1:].split("]", 1)[0]
+    else:
+        name = host.rsplit(":", 1)[0] if host.count(":") == 1 else host
+    name = name.lower()
+    return name in _LOCAL_HOSTS or name.endswith(".localhost")
+
+
 # --- Production login --------------------------------------------------------
 #
 # One operator, one shared password, matching the pattern the original app
@@ -194,7 +225,15 @@ def login_gate() -> None:
     Skipped in sandbox unless `AIS_FMD_SANDBOX_LOGIN=1`.
     """
     if _sandbox_open():
-        return
+        if _served_locally():
+            return
+        st.error(
+            "This app resolved to SANDBOX mode, which is only served on the "
+            "machine running it. If this is the deployed app, check that "
+            '`AIS_FMD_ENV = "production"` is the first line of the secrets, '
+            "above every [section], and that the secrets file parses."
+        )
+        st.stop()
     if SESSION_KEY in st.session_state:
         return
 

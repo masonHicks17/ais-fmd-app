@@ -1,0 +1,34 @@
+{
+  "_README": [
+    "What members pay for merch and events, and when. EDIT THIS FILE, not Python.",
+    "",
+    "An incoming Venmo or Zelle with no memo keyword, inside an event's dates, at",
+    "exactly one of its prices, is booked to that event's committee. A memo that",
+    "names a committee ('merch', 'formal') still wins; this only catches the",
+    "payments people send without saying what they are for.",
+    "",
+    "  committee : committee ID (ais_fmd/config/categories.py). 13 Merch, 18 Formal.",
+    "  start/end : inclusive dates the payments arrive between.",
+    "  amounts   : every price a member can pay, including bundles.",
+    "",
+    "OVERLAPS: when a payment fits two events, the one listed FIRST wins. Keep the",
+    "shorter, memo-less one first. Fall 2026: $40 is both a merch bundle and a",
+    "semi-formal ticket with a date. 13 of 15 merch payers wrote a memo; the",
+    "semi-formal form asks for none, so a bare $40 after 10/20 is Formal.",
+    "",
+    "Keys beginning with an underscore are ignored."
+  ],
+
+  "_SOURCES": [
+    "Semi-formal: E-Board meeting 07 (10/19/26) and the F26 AIS Semi-Formal Sign-Up",
+    "Form: $25 single, $40 with a non-AIS date, paid by Zelle. Event is 11/05.",
+    "Merch: no price sheet in Drive. Read off the 10/14-10/22 statement memos:",
+    "crewneck/sweatshirt $30 (9 memos), t-shirt $15, crewneck + tee bundle $40.",
+    "Sales opened 10/14. End date is a guess -- move it when sales close."
+  ],
+
+  "events": [
+    {"name": "Fall 2026 semi-formal", "committee": 18, "start": "2026-10-20", "end": "2026-11-05", "amounts": [25, 40]},
+    {"name": "Fall 2026 merch",       "committee": 13, "start": "2026-10-14", "end": "2026-11-30", "amounts": [15, 30, 40]}
+  ]
+}

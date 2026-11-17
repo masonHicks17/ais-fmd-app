@@ -125,7 +125,7 @@ with rendered[0]:
             if result.error:
                 shell.error_state("Could not save the request", result.error)
             else:
-                shell.notify(
+                shell.flash(
                     "success",
                     f"Submitted {format_currency(amount)} for "
                     f"{committee_name(committee_id)}."
@@ -268,7 +268,7 @@ if is_treasurer:
                 if result.error:
                     shell.error_state("Could not link", result.error)
                 else:
-                    shell.notify(
+                    shell.flash(
                         "success",
                         f"Request {candidate.request_id} marked paid against "
                         f"transaction {candidate.transaction_id}.",
@@ -334,5 +334,5 @@ if is_treasurer:
                     if result.error:
                         shell.error_state("Could not record the receipt", result.error)
                     else:
-                        st.success("Receipt attached.")
+                        shell.flash("success", "Receipt attached.")
                         st.rerun()

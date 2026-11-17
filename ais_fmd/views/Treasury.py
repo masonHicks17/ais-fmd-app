@@ -2,11 +2,12 @@
 Treasury portal: budgets, terms, reconciling an uploaded file against the app,
 and exports.
 
-Reconcile (ui/reconcile_tab.py) is the only upload spot since 2026-11-13: data
-arrives by an automatic sync from Google Drive and Supabase, and a bank
-statement, membership roster or event schedule uploaded there is compared with
-what the app holds, with the ticked differences applied. It replaced
-Transactions -> Import, the Roster page's upload and the Events page's sync.
+Reconcile (ui/reconcile_tab.py), added 2026-11-13: data arrives by an
+automatic sync from Google Drive and Supabase, and a bank statement, membership
+roster or event schedule uploaded there is compared with what the app holds,
+with the ticked differences applied. It replaced the Roster page's upload and
+the Events page's sync. Statements are also imported, start to finish, on
+Transactions -> Import & review (release 2026-11-13), which this branch keeps.
 
 The tabs are keyed (`reconcile_tab.TAB_KEY`), so another page can open this one
 on a tab: `reconcile_tab.open_treasury("Reconcile", "Membership roster")`, then
@@ -99,7 +100,7 @@ with tab_budgets:
             if result.error:
                 shell.error_state("Could not save budgets", result.error)
             else:
-                st.success(
+                shell.flash("success",
                     f"Saved. {result.updated} allocation(s) changed, "
                     f"{result.unchanged} already matched."
                 )
@@ -203,7 +204,7 @@ with tab_terms:
                     elif result.unchanged:
                         shell.notify("info", f"{rate_term} already had those rates.")
                     else:
-                        st.success(f"Saved dues rates for {rate_term}.")
+                        shell.flash("success", f"Saved dues rates for {rate_term}.")
                         st.rerun()
 
     # --- Dues price dates (domain/dues_checks.py) -----------------------------
@@ -339,7 +340,7 @@ with tab_terms:
                 elif result.unchanged:
                     shell.notify("info", f"{goal_term} already had that goal.")
                 else:
-                    st.success(f"Saved sponsorship goal for {goal_term}.")
+                    shell.flash("success", f"Saved sponsorship goal for {goal_term}.")
                     st.rerun()
 
     # --- Sponsorship history, all terms at a glance ---------------------------
@@ -450,7 +451,7 @@ with tab_terms:
                             if errors:
                                 shell.error_state("Some sponsor names could not be saved", errors[0])
                             else:
-                                st.success("Saved.")
+                                shell.flash("success", "Saved.")
                                 st.rerun()
 
     st.markdown('<hr class="ais-rule" />', unsafe_allow_html=True)
@@ -501,7 +502,7 @@ with tab_terms:
                 if result.error:
                     shell.error_state("Could not change the term", result.error)
                 else:
-                    st.success(
+                    shell.flash("success",
                         f"{lock_target} is now "
                         f"{'open' if currently_locked else 'closed'}."
                     )
@@ -539,7 +540,7 @@ with tab_terms:
             if result.error:
                 shell.error_state("Could not add the term", result.error)
             else:
-                st.success(f"Added {term_id.strip()}.")
+                shell.flash("success", f"Added {term_id.strip()}.")
                 st.rerun()
 
 # ============================================================================

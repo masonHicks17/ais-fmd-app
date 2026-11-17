@@ -19,8 +19,7 @@ from ais_fmd import settings
 from ais_fmd.config.categories import committee_name
 from ais_fmd.data import repositories as repo
 from ais_fmd.domain import model_runs
-from ais_fmd.domain.money import format_currency
-from ais_fmd.ui import shell
+from ais_fmd.ui import inbox, shell
 from ais_fmd.ui.flags import load_flags_or_none
 
 _FLASH = "_spend_review_flash"
@@ -182,11 +181,9 @@ def _open_flags(open_reviews: pd.DataFrame, transactions: pd.DataFrame, identity
         if tid not in charges.index:
             continue
         charge = charges.loc[tid]
-        day = pd.Timestamp(charge["transaction_date"]).date()
         booked = committee_name(review["booked_committee_id"]) or "no committee"
         with st.container(border=True):
-            shell.say(f"**{day}** · {format_currency(charge['amount'])} · booked to **{booked}**")
-            st.caption(str(charge["details"] or "")[:160])
+            inbox.row_header(charge.to_dict(), tag=f"Booked to {booked}", tag_kind="plain")
             verdict = _VERDICT_LABELS.get(review["verdict"], review["verdict"])
             suggested = review.get("suggested_committee_id")
             if pd.notna(suggested):

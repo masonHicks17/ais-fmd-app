@@ -57,7 +57,10 @@ def build(
     scoped = tagged[tagged["Semester"] == semester].copy()
     largest = pd.DataFrame(columns=["Date", "Amount", "Details", "Committee"])
     if not scoped.empty:
-        expenses = scoped[scoped["amount"] < 0].copy()
+        from .budgets import is_transfer
+
+        # A transfer to savings is not an expense the board needs to read about.
+        expenses = scoped[(scoped["amount"] < 0) & ~is_transfer(scoped)].copy()
         if not expenses.empty:
             from ..config.categories import committee_name
 

@@ -140,7 +140,7 @@ def _backlog_alerts(df_transactions) -> list[Alert]:
                 f"{share:.0f}% of all transactions. Committee spend is understated "
                 f"until these are assigned."
             ),
-            action="Work the Review Queue — corrections also teach the merchant table.",
+            action="Work through Transactions → Needs attention.",
         )
     ]
 

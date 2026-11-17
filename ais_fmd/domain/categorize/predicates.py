@@ -34,11 +34,14 @@ what makes them the highest-value tests in the repository.
 
 from __future__ import annotations
 
+import functools
+import json
 import re
 from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from functools import partial
+from pathlib import Path
 from typing import Callable
 
 from ...config.categories import (
@@ -258,6 +261,7 @@ COMMITTEE_PURPOSE: dict[int, str] = {
 # Likewise bare "ticket" -- it appears on formal, road trip and event payments
 # alike, so on its own it names no committee.
 MEMO_COMMITTEE_KEYWORDS: tuple[tuple[tuple[str, ...], int, str], ...] = (
+    # Bare "semi" is matched in the memo only -- see MEMO_WORD_COMMITTEE_KEYWORDS.
     (("semi-formal", "semi formal", "semiformal", "formal"), 18, "formal"),
     (
         (
@@ -417,7 +421,7 @@ def committee_from_memo(
         tables = MEMO_COMMITTEE_KEYWORDS
     for keywords, committee_id, label in tables:
         for keyword in keywords:
-            if keyword in text:
+            if _keyword_in(keyword, text):
                 return committee_id, label, keyword
     memo = extract_memo(details).lower()
     for keywords, committee_id, label in MEMO_WORD_COMMITTEE_KEYWORDS:
@@ -446,6 +450,11 @@ def is_dues_amount(record: dict, schedule: "DuesSchedule | None" = None) -> bool
         return equals_any(amount, DUES_AMOUNTS)
     details, account = record.get("details"), record.get("account")
     return schedule.matches(amount, record_date(record), is_venmo=is_venmo(details, account))
+def _keyword_in(keyword: str, text: str) -> bool:
+    """Substring match, except short keywords ("gbm", "semi") must be whole words."""
+    if len(keyword) > 4:
+        return keyword in text
+    return re.search(rf"\b{re.escape(keyword)}\b", text) is not None
 
 # Real Wells Fargo descriptions pad with runs of spaces:
 #   "PURCHASE                    AUTHORIZED ON   05/17 MERCHANT ..."
@@ -855,6 +864,56 @@ def rule_dues_memo(record: dict) -> Classification | None:
     )
 
 
+EVENT_PRICES_PATH = Path(__file__).resolve().parents[2] / "config" / "event_prices.json"
+EVENT_PRICE_CONFIDENCE = 0.9
+
+
+@functools.lru_cache(maxsize=1)
+def _event_prices() -> tuple[dict, ...]:
+    """config/event_prices.json's events, parsed once."""
+    data = json.loads(EVENT_PRICES_PATH.read_text(encoding="utf-8"))
+    events = []
+    for event in data.get("events", []):
+        events.append(
+            {
+                "name": str(event["name"]),
+                "committee": int(event["committee"]),
+                "start": date.fromisoformat(event["start"]),
+                "end": date.fromisoformat(event["end"]),
+                "amounts": tuple(float(a) for a in event["amounts"]),
+            }
+        )
+    return tuple(events)
+
+
+def rule_event_price(record: dict) -> Classification | None:
+    """
+    A memo-less member payment at a merch or event price, inside its dates.
+
+    Runs after the memo and dues rules, so it only sees what they left: a
+    transfer whose memo is blank or just a name. The first matching event in
+    config/event_prices.json wins, which is how a $40 that is both a merch
+    bundle and a semi-formal ticket gets decided.
+    """
+    amount = parse_amount(record.get("amount"))
+    if amount is None or amount <= 0:
+        return None
+    details, account = record.get("details"), record.get("account")
+    if not is_venmo_or_zelle(details, account):
+        return None
+    when = record_date(record)
+    if when is None:
+        return None
+    for event in _event_prices():
+        if event["start"] <= when <= event["end"] and equals_any(amount, event["amounts"]):
+            return _assign(
+                event["committee"],
+                f"{event['name']} (${amount:,.2f} is one of its prices)",
+                confidence=EVENT_PRICE_CONFIDENCE,
+            )
+    return None
+
+
 def rule_meeting_food(record: dict) -> Classification | None:
     """
     GBM meeting food: a food merchant, on a meeting weekday, that is not a bar.
@@ -895,6 +954,7 @@ EXACT_RULES: tuple[Callable[[dict], Classification | None], ...] = (
     rule_memo_committee,
     rule_dues,
     rule_dues_memo,
+    rule_event_price,
     rule_reimbursement,
 )
 
@@ -939,6 +999,7 @@ def exact_rules(
         rule_memo_committee,
         partial(rule_dues, schedule=dues),
         rule_dues_memo,
+        rule_event_price,
         rule_reimbursement,
     )
 

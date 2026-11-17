@@ -102,13 +102,14 @@ def page_header(title: str, description: str = "", *, context: str = "") -> None
     here, beside the title, so every merged page gets it without changes.
     """
     pending = st.session_state.pop(_HUB_PENDING_KEY, None)
-    # Two views fit beside the title. Three or more get their own row under it:
-    # beside the title, the pills scrolled the first view's label out of sight
-    # at laptop widths.
-    if pending and len(pending[1]) > 2:
-        title_column, switch_column = st.container(), st.container()
-    elif pending:
+    # Two short views fit beside the title. Three or more, or long names
+    # ("Import & review · All transactions · Needs attention"), get their own
+    # row under it: beside the title they scrolled out of sight at laptop widths.
+    stacked = bool(pending) and (len(pending[1]) > 2 or sum(len(label) for label in pending[1]) > 32)
+    if pending and not stacked:
         title_column, switch_column = st.columns([3, 2], vertical_alignment="bottom")
+    elif pending:
+        title_column, switch_column = st.container(), st.container()
     else:
         title_column, switch_column = st.container(), None
     with title_column:
@@ -120,6 +121,7 @@ def page_header(title: str, description: str = "", *, context: str = "") -> None
             st.segmented_control(
                 "View", labels, key=key, selection_mode="single", label_visibility="collapsed"
             )
+    show_flash()
     st.markdown('<hr class="ais-rule" />', unsafe_allow_html=True)
 
 
@@ -234,6 +236,25 @@ def error_state(headline: str, detail: str = "") -> None:
 def notify(kind: str, text: str) -> None:
     """success / warning / info that is safe to contain currency."""
     {"success": st.success, "warning": st.warning, "info": st.info}[kind](money_safe(text))
+
+
+_FLASH_KEY = "_shell_flash"
+
+
+def flash(kind: str, text: str) -> None:
+    """
+    A `notify` that survives the `st.rerun()` after a save.
+
+    A message drawn just before `st.rerun()` is wiped by the rerun, so the user
+    clicked Save and saw nothing. This holds it for `page_header` to draw on
+    the next run instead.
+    """
+    st.session_state.setdefault(_FLASH_KEY, []).append((kind, text))
+
+
+def show_flash() -> None:
+    for kind, text in st.session_state.pop(_FLASH_KEY, []):
+        notify(kind, text)
 
 
 def pill(label: str, kind: str = "muted") -> str:

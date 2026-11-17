@@ -1,7 +1,6 @@
 """
-Transactions hub: the ledger and the Review Queue under one nav entry. The
-Import view left on 2026-11-13: transactions arrive by the automatic sync, and
-an uploaded statement is checked on Treasury -> Reconcile.
+Transactions hub: statement import, the ledger and the Review Queue under one
+nav entry.
 
 CONSOLIDATION (Pebble). The merged pages are unchanged files, run one at a time
 by shell.hub; the switcher renders beside each page's title. Remove this file
@@ -18,7 +17,11 @@ auth.current_user()
 shell.hub(
     "transactions_hub",
     [
-        ("Transactions", "Transactions.py", auth.Role.MEMBER),
-        ("Review Queue", "ReviewQueue.py", auth.Role.TREASURER),
+        # Treasurers land on Import: upload, Haiku, import and the spend
+        # review run top to bottom there. Members never see it.
+        ("Import & review", "ImportStatement.py", auth.Role.TREASURER),
+        ("All transactions", "Transactions.py", auth.Role.MEMBER),
+        # The Review Queue, renamed: uncategorized rows, VP disputes and AI check flags.
+        ("Needs attention", "ReviewQueue.py", auth.Role.TREASURER),
     ],
 )

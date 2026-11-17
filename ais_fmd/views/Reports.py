@@ -20,7 +20,7 @@ from ais_fmd.ui import reconcile_tab, shell
 # `shell.hub` reads the hub's session key before it draws.
 _ACTION_TARGETS = {
     "unreconciled": ("ais_fmd/views/Reconciliation.py", None),
-    "uncategorized_backlog": ("ais_fmd/views/TransactionsHub.py", "Review Queue"),
+    "uncategorized_backlog": ("ais_fmd/views/TransactionsHub.py", "Needs attention"),
     "stale_data": ("ais_fmd/views/Treasury.py", "Reconcile"),
     "unbudgeted_spend": ("ais_fmd/views/Treasury.py", "Budgets"),
 }
