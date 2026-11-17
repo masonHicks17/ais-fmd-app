@@ -262,6 +262,15 @@ class Backend(ABC):
     def delete_event_cost(self, cost_id: int, actor: str) -> UpdateResult:
         return self._unsupported("Event costs")
 
+    def fetch_planned_sponsorships(self, semester: str | None = None) -> pd.DataFrame:
+        return pd.DataFrame(columns=[
+            "sponsorship_id", "semester", "sponsor", "amount", "status", "paid_on", "notes",
+            "updated_by", "updated_at",
+        ])
+
+    def replace_planned_sponsorships(self, semester: str, rows: list[dict], actor: str) -> UpdateResult:
+        return self._unsupported("Planned sponsorships")
+
     def fetch_profiles(self) -> pd.DataFrame:
         return pd.DataFrame()
 

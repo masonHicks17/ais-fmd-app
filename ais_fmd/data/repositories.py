@@ -719,6 +719,27 @@ def delete_event_cost(cost_id: int, actor: str) -> UpdateResult:
     return result
 
 
+# --- Planner: sponsorships expected in a semester -------------------------------
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _planned_sponsorships(version: int, semester: str | None) -> pd.DataFrame:
+    return backend().fetch_planned_sponsorships(semester)
+
+
+def load_planned_sponsorships(semester: str | None = None) -> pd.DataFrame:
+    """Sponsors expected in `semester` (all semesters when None), as typed on the Planner."""
+    return _planned_sponsorships(data_version(), semester)
+
+
+@_blocked_when_read_only(_update_refusal)
+def replace_planned_sponsorships(semester: str, rows: list[dict], actor: str) -> UpdateResult:
+    """Save the semester's whole sponsor list; rows not in `rows` are removed."""
+    result = backend().replace_planned_sponsorships(semester, rows, actor)
+    if result.ok:
+        invalidate()
+    return result
+
+
 # --- Committee plans and budget requests --------------------------------------
 
 @st.cache_data(ttl=60, show_spinner=False)

@@ -384,6 +384,24 @@ CREATE TABLE IF NOT EXISTS event_costs (
 
 CREATE INDEX IF NOT EXISTS idx_event_costs_event ON event_costs (event_id);
 
+-- Sponsorships expected in a semester (2026-11-17, Planner): one row per
+-- sponsor, pledged or paid. Keyed by the semester's NAME, like planned_events,
+-- so a term can be planned before Treasury defines it. A plan only: the money
+-- itself is the bank transaction, booked to Sponsorship / Donation.
+CREATE TABLE IF NOT EXISTS planned_sponsorships (
+    sponsorship_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    semester   TEXT NOT NULL,
+    sponsor    TEXT NOT NULL,
+    amount     REAL NOT NULL DEFAULT 0 CHECK (amount >= 0),
+    status     TEXT NOT NULL DEFAULT 'Pledged' CHECK (status IN ('Pledged', 'Paid')),
+    paid_on    TEXT,
+    notes      TEXT,
+    updated_by TEXT,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_planned_sponsorships_semester ON planned_sponsorships (semester);
+
 -- Which event a transaction paid for. One event per transaction; confirmed by
 -- a person (a suggestion from domain/events.suggest_links is not stored).
 CREATE TABLE IF NOT EXISTS event_links (
@@ -1677,6 +1695,60 @@ class SqliteBackend(Backend):
             result.error = str(exc)
         return result
 
+    # --- Planner: sponsorships expected in a semester ------------------------
+
+    def fetch_planned_sponsorships(self, semester: str | None = None) -> pd.DataFrame:
+        if semester is None:
+            return self._read("SELECT * FROM planned_sponsorships ORDER BY semester, sponsorship_id")
+        return self._read(
+            "SELECT * FROM planned_sponsorships WHERE semester = ? ORDER BY sponsorship_id", (semester,)
+        )
+
+    def replace_planned_sponsorships(self, semester: str, rows: list[dict], actor: str) -> UpdateResult:
+        """The semester's whole sponsor list, as typed; `updated` is how many rows it now holds."""
+        result = UpdateResult()
+        semester = (semester or "").strip()
+        if not semester:
+            result.error = "Choose the semester these sponsorships are for."
+            return result
+        clean = []
+        for position, row in enumerate(rows, start=1):
+            sponsor = str(row.get("sponsor") or "").strip()
+            if not sponsor:
+                result.error = f"Row {position} needs a sponsor name."
+                return result
+            try:
+                amount = round(float(row.get("amount") or 0), 2)
+            except (TypeError, ValueError):
+                result.error = f"{sponsor}: the amount isn't a number."
+                return result
+            if amount < 0:
+                result.error = f"{sponsor}: the amount can't be negative."
+                return result
+            status = str(row.get("status") or "Pledged")
+            if status not in ("Pledged", "Paid"):
+                result.error = f"{sponsor}: status must be Pledged or Paid."
+                return result
+            paid_on = row.get("paid_on")
+            paid_on = None if paid_on is None or pd.isna(paid_on) or str(paid_on).strip() == "" else (
+                pd.to_datetime(paid_on).strftime("%Y-%m-%d")
+            )
+            notes = str(row.get("notes") or "").strip() or None
+            clean.append((semester, sponsor[:120], amount, status, paid_on, notes and notes[:300], actor))
+        try:
+            with self._connect() as connection:
+                connection.execute("DELETE FROM planned_sponsorships WHERE semester = ?", (semester,))
+                connection.executemany(
+                    "INSERT INTO planned_sponsorships (semester, sponsor, amount, status, paid_on, notes, updated_by) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    clean,
+                )
+                connection.commit()
+            result.updated = len(clean)
+        except (sqlite3.Error, ValueError) as exc:
+            result.error = str(exc)
+        return result
+
     # --- Module M22: VP portal access ----------------------------------------
 
     def fetch_profiles(self) -> pd.DataFrame:
@@ -2369,6 +2441,10 @@ def _columns_for(query: str) -> list[str]:
         ],
         "event_links": ["transaction_id", "event_id", "linked_by", "linked_at"],
         "event_costs": ["cost_id", "event_id", "kind", "label", "amount", "added_by", "added_at"],
+        "planned_sponsorships": [
+            "sponsorship_id", "semester", "sponsor", "amount", "status", "paid_on", "notes",
+            "updated_by", "updated_at",
+        ],
         "budget_requests": [
             "request_id", "committee_id", "semester", "amount", "reason",
             "requested_by", "requested_at",
